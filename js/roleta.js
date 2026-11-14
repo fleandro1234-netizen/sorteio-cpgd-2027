@@ -9,7 +9,6 @@ const FATIA_B = '#0C2239';
 const FATIA_C = '#183A5C';
 const CREME = '#F5EFE3';
 const MARINHO_PROFUNDO = '#0A1D2E';
-const SERIF = '"Palatino Linotype", Palatino, "Book Antiqua", "URW Palladio L", serif';
 
 const RAD = Math.PI / 180;
 
@@ -92,6 +91,19 @@ export class Roleta {
       const atual = fatiaSobPonteiro(this.rotacao, n);
       this.rotacao = -((atual + 0.5) * w) + Math.round(this.rotacao / 360) * 360;
     }
+    this._prepararDisco();
+    this._sujo = true;
+  }
+
+  // roleta já sorteada: a fatia vencedora fica em ouro, parada sob o ponteiro
+  mostrarVencedor(indice) {
+    if (this.giro) return;
+    const n = this.quartos.length;
+    if (!n || indice < 0 || indice >= n) return;
+    const w = 360 / n;
+    this.rotacao = -((indice + 0.5) * w) + Math.round(this.rotacao / 360) * 360;
+    this.destaque = indice;
+    this.pulso = null;
     this._prepararDisco();
     this._sujo = true;
   }
@@ -191,7 +203,9 @@ export class Roleta {
     g.lineWidth = Math.max(1, 1 * dpr);
     g.beginPath(); g.arc(0, 0, R * 0.885, 0, Math.PI * 2); g.stroke();
 
-    this._escreverNumeros(g, R, w, n);
+    // Pedido dele: todas as roletas iguais, só com as linhas de cada quarto (sem número na fatia);
+    // o sorteado aparece grande ao lado.
+    this.modoTexto = 'linhas';
 
     // pinos (bolinhas de ouro) na borda, sobre as divisórias
     const passo = n > 1 ? Math.max(1, Math.ceil(n / 90)) : 0;
@@ -209,45 +223,6 @@ export class Roleta {
         g.beginPath(); g.arc(x, y, rp, 0, Math.PI * 2); g.fill();
       }
     }
-  }
-
-  _escreverNumeros(g, R, w, n) {
-    const textos = this.quartos.map((q) => String(q.numero));
-    g.font = `700 100px ${SERIF}`;
-    const larg100 = Math.max(...textos.map((t) => g.measureText(t).width), 1);
-    const dpr = this.dpr;
-    // dois jeitos de escrever: em pé (tangencial, o número fica em pé quando passa no topo) ou
-    // deitado ao longo do raio (radial). Fica o que der letra maior; empate pequeno, em pé.
-    const rT = R * 0.76;
-    const arco = n > 1 ? 2 * rT * Math.sin(w / 2) * 0.8 : R * 0.9;
-    const fsT = Math.min(R * 0.13, (arco * 100) / larg100);
-    const comp = R * 0.5;
-    const alt = n > 1 ? 2 * (R * 0.7) * Math.sin(w / 2) * 0.86 : R;
-    const fsR = Math.max(6 * dpr, Math.min(alt, (comp * 100) / larg100, R * 0.1));
-    const modo = (fsT >= 0.8 * fsR && fsT >= 12 * dpr) ? 'tangencial' : 'radial';
-    const fs = modo === 'tangencial' ? fsT : fsR;
-    // Pedido dele: todos os quartos na roda, ou sem número e só as linhas. Quando a letra não
-    // fica legível (hotel com centenas de quartos), a roda fica só com as linhas de cada quarto.
-    if (fs < Math.max(12 * dpr, R * 0.03)) { this.modoTexto = 'linhas'; return; }
-    g.font = `700 ${fs}px ${SERIF}`;
-    g.textAlign = 'center';
-    g.textBaseline = 'middle';
-    for (let i = 0; i < n; i++) {
-      const meio = -Math.PI / 2 + (i + 0.5) * w;
-      g.save();
-      g.fillStyle = i === this.destaque ? MARINHO_PROFUNDO : CREME;
-      if (modo === 'tangencial') {
-        g.translate(Math.cos(meio) * rT, Math.sin(meio) * rT);
-        g.rotate(meio + Math.PI / 2);
-        g.fillText(textos[i], 0, 0);
-      } else {
-        g.rotate(meio);
-        g.textAlign = 'right';
-        g.fillText(textos[i], R * 0.85, 0);
-      }
-      g.restore();
-    }
-    this.modoTexto = modo;
   }
 
   // ------------------------------------------------------------ aro, reflexo e medalhão (parados)

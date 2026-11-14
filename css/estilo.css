@@ -280,6 +280,46 @@ body.modo-demo .faixa-demo {
 .cartao-barra { height: 3px; background: #E9DFC9; }
 .cartao-barra span { display: block; height: 100%; background: var(--ouro-escuro); }
 
+/* hotel já sorteado: o vencedor aparece no lugar da contagem */
+.cartao-hotel.feito .cartao-conta { color: var(--marinho); font-weight: 600; }
+.cartao-hotel.feito .cartao-conta::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--ouro-escuro);
+  vertical-align: 1px;
+}
+
+/* rodada bônus: cartão marinho com o símbolo do casal */
+.cartao-bonus {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 6px;
+  padding: 22px 18px;
+  background: radial-gradient(ellipse at 50% 30%, #1C4066 0%, var(--marinho-profundo) 80%);
+  border: 1px solid var(--ouro);
+  color: var(--creme);
+  text-decoration: none;
+  min-height: 100%;
+}
+.cartao-bonus:hover, .cartao-bonus:focus-visible { outline: 3px solid var(--ouro); outline-offset: 3px; }
+.bonus-simbolo { width: 68px; height: auto; margin-bottom: 4px; }
+.bonus-titulo { font: 700 clamp(24px, 2vw, 32px)/1.1 var(--serif); color: var(--ouro-claro); }
+.bonus-texto { font: 400 clamp(19px, 1.5vw, 24px)/1.2 var(--script); color: var(--champanhe); }
+.bonus-conta {
+  margin-top: 6px;
+  font: 600 12px/1.5 var(--sans);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ouro);
+}
+
 .cartao-resumo {
   display: flex;
   flex-direction: column;
@@ -457,6 +497,13 @@ body.modo-demo .faixa-demo {
 @keyframes revelar {
   0% { transform: scale(0.92); filter: brightness(1.9) drop-shadow(0 0 0.12em rgba(255, 236, 180, 0.9)); }
   100% { transform: none; filter: drop-shadow(0 0.035em 0.05em rgba(0, 0, 0, 0.55)); }
+}
+.resultado-hotel {
+  font: 600 clamp(14px, 1.9vh, 20px)/1.3 var(--sans);
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--ouro);
+  padding-left: 0.26em;
 }
 .resultado-casal { margin-top: 0.6vh; font: 400 clamp(32px, 5vh, 60px)/1.1 var(--script); color: #fff; max-width: 100%; }
 .resultado-envio { margin-top: 0.8vh; font: 400 14px/1.4 var(--sans); color: rgba(230, 211, 168, 0.78); }

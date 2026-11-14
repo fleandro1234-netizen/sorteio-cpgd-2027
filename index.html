@@ -48,7 +48,7 @@
     <svg class="aliancas" viewBox="0 0 84 52" aria-hidden="true"><circle cx="30" cy="26" r="20"/><circle cx="54" cy="26" r="20"/></svg>
   </header>
   <main class="folder-corpo">
-    <p class="folder-intro">Escolha o hotel para abrir a roleta dos quartos dele.</p>
+    <p class="folder-intro">Um quarto sorteado por hotel e, no fim, a rodada bônus com os quartos de todos os hotéis.</p>
     <div id="grade-hoteis" class="grade-hoteis"></div>
     <p id="hoteis-vazio" class="vazio" hidden>Nenhum hotel cadastrado. Cadastre em Configurar.</p>
     <p class="credito">Música do giro: "Sneaky Snitch", de Kevin MacLeod (incompetech.com), licença Creative Commons Atribuição 4.0.</p>
@@ -78,39 +78,28 @@
       <div class="painel-hotel">
         <span id="painel-prefixo" class="painel-prefixo">HOTEL</span>
         <h1 id="painel-nome" class="painel-nome ouro-metal"></h1>
-        <p class="painel-frase">Sorteio dos quartos</p>
+        <p id="painel-frase" class="painel-frase">Sorteio do quarto</p>
       </div>
       <div id="bloco-pronto" class="bloco-pronto">
         <p id="painel-conta" class="painel-conta"></p>
-        <form id="form-casal" class="form-casal" autocomplete="off">
-          <label for="casal" class="casal-rotulo">Casal (opcional)</label>
-          <input id="casal" class="casal-campo" maxlength="120" autocomplete="off" placeholder="Nome do casal">
-          <button id="botao-girar" type="submit" class="botao-nobre botao-girar">Girar a roleta</button>
-        </form>
+        <button id="botao-girar" type="button" class="botao-nobre botao-girar">Girar a roleta</button>
       </div>
       <div id="bloco-resultado" class="bloco-resultado" hidden aria-live="assertive">
-        <span id="resultado-rotulo" class="resultado-rotulo">Quarto</span>
+        <span id="resultado-rotulo" class="resultado-rotulo">Quarto sorteado</span>
         <span id="resultado-numero" class="resultado-numero ouro-metal"></span>
-        <span id="resultado-casal" class="resultado-casal"></span>
+        <span id="resultado-hotel" class="resultado-hotel" hidden></span>
         <span id="resultado-envio" class="resultado-envio"></span>
         <div class="resultado-acoes">
-          <button id="proximo" type="button" class="botao-nobre">Próximo sorteio</button>
-          <button id="abrir-hotel" type="button" class="botao-linha" hidden></button>
-          <button id="corrigir-casal" type="button" class="botao-linha">Corrigir o nome do casal</button>
+          <button id="proximo" type="button" class="botao-nobre">Próximo hotel</button>
         </div>
-      </div>
-      <div class="ultimos-bloco">
-        <h2 id="ultimos-titulo" class="ultimos-titulo">Últimos sorteados</h2>
-        <ol id="ultimos" class="ultimos"></ol>
       </div>
     </div>
   </div>
   <div id="luzes" class="luzes" aria-hidden="true"></div>
   <footer class="telao-rodape">
-    <button id="musica" type="button" class="botao-linha" aria-pressed="true">Música: ligada</button>
+    <button id="som-giro" type="button" class="botao-linha">Som do giro: tambores</button>
     <button id="tela-cheia" type="button" class="botao-linha">Tela cheia</button>
-    <button id="desfazer" type="button" class="botao-linha">Desfazer o último</button>
-    <button id="resetar-hotel" type="button" class="botao-linha">Resetar este hotel</button>
+    <button id="resetar-hotel" type="button" class="botao-linha">Resetar o sorteio deste hotel</button>
     <span class="estado-banco" role="status"></span>
   </footer>
 </section>
@@ -137,14 +126,14 @@
     <label class="campo-marcar marcar-desfeitos"><input id="mostrar-desfeitos" type="checkbox"><span>Mostrar também os desfeitos e resetados</span></label>
     <div class="tabela-rolagem">
       <table class="tabela">
-        <thead><tr><th scope="col">Hotel</th><th scope="col">Sorteado</th><th scope="col">Casal</th><th scope="col">Data e hora</th><th scope="col">Situação</th></tr></thead>
+        <thead><tr><th scope="col">Hotel</th><th scope="col">Sorteado</th><th scope="col">Rodada</th><th scope="col">Data e hora</th><th scope="col">Situação</th></tr></thead>
         <tbody id="tabela-corpo"></tbody>
       </table>
     </div>
     <p id="resultados-vazio" class="vazio" hidden>Nenhum quarto sorteado ainda.</p>
     <section class="zona-reset" aria-labelledby="reset-titulo">
       <h2 id="reset-titulo">Resetar o sorteio</h2>
-      <p>Devolve todos os quartos sorteados para as roletas de todos os hotéis. O histórico fica guardado. Para resetar só um hotel, use o botão na roleta dele.</p>
+      <p>Anula todos os sorteios (hotéis e rodada bônus) e libera todas as roletas para girar de novo. O histórico fica guardado. Para resetar só um hotel, use o botão na roleta dele.</p>
       <button id="resetar-tudo" type="button" class="botao-escuro">Resetar todo o sorteio</button>
     </section>
   </main>
@@ -181,8 +170,14 @@
             <option value="13">Com suspense, 13 segundos</option>
           </select>
         </label>
-        <label class="campo-marcar"><input id="pref-musica" type="checkbox"><span>Música de suspense durante o giro</span></label>
-        <label class="campo-marcar"><input id="pref-som" type="checkbox"><span>Som de tique ao girar</span></label>
+        <label class="campo"><span>Som do giro</span>
+          <select id="pref-som-giro">
+            <option value="tambor">Rufar de tambores</option>
+            <option value="musica">Música de suspense</option>
+            <option value="nenhum">Desligado</option>
+          </select>
+        </label>
+        <label class="campo-marcar"><input id="pref-som" type="checkbox"><span>Tique do ponteiro ao girar</span></label>
       </div>
       <p class="credito">Música do giro: "Sneaky Snitch", de Kevin MacLeod (incompetech.com), licença Creative Commons Atribuição 4.0.</p>
       <div id="bloco-sair" class="bloco-sair">

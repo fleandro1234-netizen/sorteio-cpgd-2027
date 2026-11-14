@@ -1,19 +1,24 @@
 // Telas do sorteio dos quartos do 29º CPGD.
+// Regras dele (14/11/2026): um quarto sorteado por hotel; depois uma rodada bônus com os quartos de
+// todos os hotéis; todas as roletas iguais (só as linhas); sem nome de casal; rufar de tambores.
 import {
   FonteRemota, FonteDemo, ArmazemLocal, ErroCodigo, ErroRede, CHAVES_LOCAIS,
-  livresDoHotel, quartosDoHotel, sorteiosDoHotel, contagens,
+  livresDoHotel, quartosDoHotel, contagens,
 } from './dados.js';
 import {
   normalizarCodigo, interpretarListaQuartos, descreverLista, sortearIndice, sortearDesvio,
   gerarCsv, formatarHora, formatarDataHora, novoId, ehListaDeNomes,
 } from './nucleo.js';
 import { Roleta, criarTique } from './roleta.js';
-import { Musica, tocarSino } from './musica.js';
+import { Musica, Tambor, tocarSino } from './musica.js';
 
 const SUPABASE_URL = 'https://hfwrzhugtochmoukmbpr.supabase.co';
 const SUPABASE_CHAVE = 'sb_publishable_tPlmP6NE4PTDFNzTDBKQ9g_9QZA6v2I';
 const CH_CODIGO = 'cpgd29:codigo';
 const CH_PREFS = 'cpgd29:prefs';
+const BONUS = 'bonus';
+const SONS = ['tambor', 'musica', 'nenhum'];
+const NOME_SOM = { tambor: 'Som do giro: tambores', musica: 'Som do giro: música', nenhum: 'Som do giro: desligado' };
 const FOTOS = [
   ['hotel-monte-real', 'Monte Real'], ['hotel-panorama', 'Panorama'], ['hotel-gloria', 'Grande Hotel Glória'],
   ['hotel-bela-vista', 'Recanto Bela Vista'], ['hotel-guarany', 'Guarany'], ['hotel-fredy', 'Fredy'],
@@ -25,20 +30,22 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
 const semMovimento = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const maiuscula = (t) => `${t.charAt(0).toUpperCase()}${t.slice(1)}`;
 
 const armazem = new ArmazemLocal();
 const tique = criarTique();
 const musica = new Musica('audio/suspense.mp3');
+const tambor = new Tambor();
 const logoCasal = new Image();
 logoCasal.src = 'img/logo-casal.png';
 
 let fonte = null;
-let prefs = { duracao: 9, som: false, musica: true };
+let prefs = { duracao: 9, som: false, somGiro: 'tambor' };
 let tela = null;
 let roleta = null;
-let hotelId = null;
+let hotelId = null;             // id do hotel, ou BONUS na rodada bônus
 let fase = 'pronto';            // pronto | girando | resultado
-let resultado = null;           // { quarto, casal, cliente_id, envio, nomes }
+let resultado = null;           // { quarto, cliente_id, envio, tipo, hotelNome }
 let idsNaRoda = '';
 let conexao = 'ok';             // ok | sem_conexao
 let filtroHotel = 'todos';
@@ -55,7 +62,6 @@ function dadosDemo() {
     [5, 'Guarany', 'HOTEL', 'hotel-guarany', '301 a 330'],
     [6, 'Fredy', 'HOTEL', 'hotel-fredy', '1 a 8'],
     [7, 'Majestic', 'HOTEL', 'hotel-majestic', 'Casal Exemplo Um, Casal Exemplo Dois, Casal Exemplo Três, Casal Exemplo Quatro, Casal Exemplo Cinco, Casal Exemplo Seis'],
-    [8, 'Sorteio bônus', '', null, 'Monte Real, Panorama, Grande Hotel Glória, Recanto Bela Vista, Guarany, Fredy, Majestic'],
   ];
   let qid = 1000;
   const hoteis = [];
@@ -67,7 +73,7 @@ function dadosDemo() {
   return { hoteis, quartos, sorteios: [], agora: null };
 }
 
-// ------------------------------------------------------------------ utilidades de tela
+// ------------------------------------------------------------------ regras do sorteio
 function prefixoVisivel(h) {
   if (!h || !h.prefixo) return '';
   return h.nome.trim().toLowerCase().startsWith(h.prefixo.trim().toLowerCase()) ? '' : h.prefixo;
@@ -79,40 +85,57 @@ function nomeCompleto(h) {
   return p ? `${p.charAt(0)}${p.slice(1).toLowerCase()} ${h.nome}` : h.nome;
 }
 
-function hotelAtual() {
-  return fonte?.estado().hoteis.find((h) => h.id === hotelId) || null;
-}
+const emBonus = () => hotelId === BONUS;
 
-// Três tipos de roleta: quartos (número), nomes de casais (hotel que só mandou nomes) e hotéis
-// (sorteio bônus: os itens são os nomes dos outros hotéis).
 const TEXTOS = {
-  quartos: { rotulo: 'Quarto', um: 'quarto', varios: 'quartos', todos: 'Todos os quartos deste hotel já foram sorteados.' },
-  nomes: { rotulo: 'Casal sorteado', um: 'casal', varios: 'casais', todos: 'Todos os casais deste hotel já foram sorteados.' },
-  hoteis: { rotulo: 'Hotel sorteado', um: 'hotel', varios: 'hotéis', todos: 'Todos os hotéis já saíram neste sorteio bônus.' },
+  quartos: { rotulo: 'Quarto sorteado', um: 'quarto', varios: 'quartos' },
+  nomes: { rotulo: 'Casal sorteado', um: 'casal', varios: 'casais' },
+  bonus: { rotulo: 'Quarto sorteado', um: 'quarto', varios: 'quartos' },
 };
 
-function tipoRoleta(id, e = fonte.estado()) {
-  const itens = quartosDoHotel(e, id).map((q) => String(q.numero).trim().toLowerCase());
-  if (!itens.length) return 'quartos';
-  const outros = new Set(e.hoteis.filter((h) => h.id !== id).map((h) => h.nome.trim().toLowerCase()));
-  if (itens.every((t) => outros.has(t))) return 'hoteis';
-  return ehListaDeNomes(itens) ? 'nomes' : 'quartos';
+function tipoDoHotel(id, e = fonte.estado()) {
+  if (id === BONUS) return 'bonus';
+  return ehListaDeNomes(quartosDoHotel(e, id).map((q) => q.numero)) ? 'nomes' : 'quartos';
 }
 
-function modoNomes(id, e = fonte.estado()) {
-  return tipoRoleta(id, e) !== 'quartos';
+// hotéis que entram na rodada bônus: os que têm quartos (o que só tem nomes fica fora)
+function hoteisDeQuartos(e) {
+  return e.hoteis.filter((h) => tipoDoHotel(h.id, e) === 'quartos');
 }
 
-function hotelPeloNome(nome, e = fonte.estado()) {
-  const alvo = String(nome).trim().toLowerCase();
-  return e.hoteis.find((h) => h.nome.trim().toLowerCase() === alvo) || null;
+// o sorteio que encerra a roleta: um por hotel (fora a rodada bônus) e um na rodada bônus
+function vencedorDe(id, e = fonte.estado()) {
+  const validos = e.sorteios.filter((s) => !s.anulado_em);
+  if (id === BONUS) return validos.find((s) => s.rodada === BONUS) || null;
+  return validos.find((s) => s.hotel_id === id && s.rodada !== BONUS) || null;
 }
 
-// "o quarto 214" ou "Alemar e Claudia"
-function rotuloItem(numero, nomes) {
-  return nomes ? numero : `o quarto ${numero}`;
+// o que vai na roda: antes do sorteio, os livres; depois, todos, com o vencedor em ouro
+function rodaDe(id, e = fonte.estado()) {
+  const v = vencedorDe(id, e);
+  if (id !== BONUS) return v ? quartosDoHotel(e, id) : livresDoHotel(e, id);
+  const ocupados = new Set(e.sorteios.filter((s) => !s.anulado_em && (!v || s.cliente_id !== v.cliente_id)).map((s) => s.quarto_id));
+  return hoteisDeQuartos(e).flatMap((h) => quartosDoHotel(e, h.id)).filter((q) => !ocupados.has(q.id));
 }
 
+function nomeDoHotel(id, e = fonte.estado()) {
+  return nomeCompleto(e.hoteis.find((h) => h.id === id)) || 'Hotel removido';
+}
+
+function descricaoVencedor(s, e = fonte.estado()) {
+  if (s.rodada === BONUS) return `quarto ${s.numero}, ${nomeDoHotel(s.hotel_id, e)}`;
+  return tipoDoHotel(s.hotel_id, e) === 'nomes' ? s.numero : `quarto ${s.numero}`;
+}
+
+// depois de um sorteio, o botão principal leva ao próximo passo do evento
+function proximoDestino(e = fonte.estado()) {
+  const pendente = e.hoteis.find((h) => h.id !== hotelId && rodaDe(h.id, e).length > 0 && !vencedorDe(h.id, e));
+  if (pendente) return { hash: `#/roleta/${pendente.id}`, rotulo: `Próximo hotel: ${pendente.nome}` };
+  if (!emBonus() && !vencedorDe(BONUS, e) && rodaDe(BONUS, e).length > 0) return { hash: '#/bonus', rotulo: 'Ir para a rodada bônus' };
+  return { hash: '#/resultados', rotulo: 'Ver os resultados' };
+}
+
+// ------------------------------------------------------------------ utilidades de tela
 let avisoTempo = null;
 function avisar(msg, ms = 5200) {
   const a = $('#aviso');
@@ -134,35 +157,31 @@ function carregarPrefs() {
     const p = JSON.parse(armazem.ler(CH_PREFS) || '{}');
     if ([6, 9, 13].includes(p.duracao)) prefs.duracao = p.duracao;
     prefs.som = p.som === true;
-    prefs.musica = p.musica !== false;
+    if (SONS.includes(p.somGiro)) prefs.somGiro = p.somGiro;
   } catch { /* fica o padrão */ }
 }
 function salvarPrefs() { armazem.gravar(CH_PREFS, JSON.stringify(prefs)); }
 
-// diálogo de confirmação (também serve para pedir um texto)
-function confirmar({ titulo, texto, botao = 'Confirmar', exigir = null, campo = null, valor = '' }) {
+// diálogo de confirmação (pode exigir uma palavra digitada)
+function confirmar({ titulo, texto, botao = 'Confirmar', exigir = null }) {
   const d = $('#dialogo');
   $('#dialogo-titulo').textContent = titulo;
   $('#dialogo-texto').textContent = texto || '';
   $('#dialogo-texto').hidden = !texto;
   const ok = $('#dialogo-ok');
   ok.textContent = botao;
-  const rotulo = $('#dialogo-rotulo');
   const input = $('#dialogo-campo');
-  rotulo.hidden = !(exigir || campo);
-  $('#dialogo-campo-texto').textContent = exigir ? `Digite ${exigir}` : (campo || '');
-  input.value = exigir ? '' : valor;
+  $('#dialogo-rotulo').hidden = !exigir;
+  $('#dialogo-campo-texto').textContent = exigir ? `Digite ${exigir}` : '';
+  input.value = '';
   const conferir = () => { ok.disabled = !!exigir && input.value.trim().toUpperCase() !== exigir; };
   input.oninput = conferir;
   conferir();
   return new Promise((resolve) => {
-    d.onclose = () => {
-      const sim = d.returnValue === 'ok';
-      resolve(campo ? (sim ? input.value : null) : sim);
-    };
+    d.onclose = () => resolve(d.returnValue === 'ok');
     d.returnValue = '';
     d.showModal();
-    setTimeout(() => ((exigir || campo) ? input : ok).focus(), 30);
+    setTimeout(() => (exigir ? input : ok).focus(), 30);
   });
 }
 
@@ -250,7 +269,7 @@ function rotear() {
   if (!fonte) { mostrarEntrada(); return; }
   // durante o giro a tela fica na roleta: trocar de hotel no meio misturava a roda de um com o nome de outro
   if (fase === 'girando' && tela === 'roleta' && hotelId != null) {
-    const aqui = `#/roleta/${hotelId}`;
+    const aqui = emBonus() ? '#/bonus' : `#/roleta/${hotelId}`;
     if (location.hash !== aqui) {
       history.replaceState(null, '', aqui);
       avisar('Espere a roleta parar.');
@@ -260,6 +279,7 @@ function rotear() {
   const h = location.hash || '#/hoteis';
   const m = h.match(/^#\/roleta\/(\d+)$/);
   if (m) mostrarRoleta(Number(m[1]));
+  else if (h === '#/bonus') mostrarRoleta(BONUS);
   else if (h === '#/resultados') mostrarResultados();
   else if (h === '#/configurar') mostrarConfig();
   else mostrarHoteis();
@@ -273,37 +293,39 @@ function ativarTela(nome) {
   atualizarEstadoBanco();
 }
 
+function chaveDaRoda(e = fonte.estado()) {
+  const v = vencedorDe(hotelId, e);
+  return `${rodaDe(hotelId, e).map((q) => q.id).join(',')}|${v ? v.cliente_id : ''}`;
+}
+
 function aoMudarDados() {
   atualizarEstadoBanco();
   if (tela === 'hoteis') renderHoteis();
   else if (tela === 'resultados') renderResultados();
   else if (tela === 'roleta') {
-    if (fase === 'pronto') {
-      const ids = livresDoHotel(fonte.estado(), hotelId).map((q) => q.id).join(',');
-      if (ids !== idsNaRoda) montarRoda();
-    }
+    if (fase === 'pronto' && chaveDaRoda() !== idsNaRoda) montarRoda();
     if (fase === 'resultado' && resultado) {
       // o sorteio que estava guardado no aparelho chegou ao banco: o aviso acompanha
       const s = fonte.estado().sorteios.find((x) => x.cliente_id === resultado.cliente_id);
-      if (s && !s.pendente && !s.anulado_em && resultado.envio === 'pendente') { resultado.envio = 'gravado'; mostrarEnvio(); }
+      if (s && !s.pendente && !s.anulado_em && resultado.envio === 'pendente') { resultado.envio = 'gravado'; }
     }
     atualizarPainelRoleta();
   }
 }
 
 function aoConflito(c) {
-  const quem = c.existente?.casal ? ` para ${c.existente.casal}` : '';
-  const msg = c.motivo === 'quarto_ja_sorteado'
-    ? `O quarto ${c.numero} já tinha sido sorteado em outro aparelho${quem}. A roleta foi atualizada; gire de novo.`
-    : `O quarto ${c.numero} saiu da lista deste hotel e o sorteio dele não foi gravado. Gire de novo.`;
+  const ex = c.existente;
+  const msgs = {
+    quarto_ja_sorteado: `O quarto ${c.numero} já tinha sido sorteado em outro aparelho. Nada foi gravado.`,
+    hotel_ja_sorteado: `Este hotel já tinha o sorteio feito em outro aparelho${ex ? ` (quarto ${ex.numero})` : ''}. Nada foi gravado.`,
+    bonus_ja_sorteado: `A rodada bônus já tinha sido sorteada em outro aparelho${ex ? ` (quarto ${ex.numero})` : ''}. Nada foi gravado.`,
+  };
+  const msg = msgs[c.motivo] || `O quarto ${c.numero} saiu da lista do hotel e o sorteio dele não foi gravado.`;
   const eAtual = resultado && resultado.cliente_id === c.cliente_id;
-  if (eAtual) {
-    resultado.envio = 'conflito';
-    resultado.mensagem = msg;
-    if (fase === 'resultado') mostrarEnvio();
-  }
+  if (eAtual) { resultado.envio = 'conflito'; resultado.mensagem = msg; }
   // enquanto a roda gira o aviso espera, para não entregar nada antes da hora
   if (!(eAtual && fase === 'girando')) avisar(msg, 9000);
+  if (eAtual && fase === 'resultado') { fase = 'pronto'; resultado = null; montarRoda(); atualizarPainelRoleta(); }
   fonte.carregar().catch(() => {});
 }
 
@@ -352,38 +374,49 @@ function renderHoteis() {
   const e = fonte.estado();
   const cont = contagens(e);
   const frag = document.createDocumentFragment();
-  let total = 0;
   let feitos = 0;
+  let comLista = 0;
   for (const h of e.hoteis) {
     const c = cont.get(h.id) || { total: 0, sorteados: 0 };
-    const tipo = tipoRoleta(h.id, e);
+    const tipo = tipoDoHotel(h.id, e);
     const tx = TEXTOS[tipo];
-    if (tipo !== 'hoteis') { total += c.total; feitos += c.sorteados; }
+    const v = vencedorDe(h.id, e);
+    if (c.total) comLista++;
+    if (v) feitos++;
+    const livres = rodaDe(h.id, e).length;
     const a = document.createElement('a');
-    a.className = tipo === 'hoteis' ? 'cartao-hotel cartao-bonus' : 'cartao-hotel';
+    a.className = v ? 'cartao-hotel feito' : 'cartao-hotel';
     a.href = `#/roleta/${h.id}`;
     const pre = prefixoVisivel(h);
-    const foto = h.foto
-      ? `<img src="img/hoteis/${encodeURIComponent(h.foto)}.jpg" alt="Fachada do ${esc(nomeCompleto(h))}" loading="lazy">`
-      : (tipo === 'hoteis' ? '<span class="cartao-sem-foto bonus-fundo"><img src="img/logo-casal.png" alt=""></span>' : '<span class="cartao-sem-foto"></span>');
-    const conta = !c.total ? 'Nenhum quarto cadastrado ainda'
-      : (tipo === 'hoteis' ? `Entre ${plural(c.total, 'hotel', 'hotéis')}, ${c.sorteados ? plural(c.sorteados, 'já sorteado', 'já sorteados') : 'nenhum sorteado ainda'}`
-        : `${c.sorteados} de ${c.total} ${c.total === 1 ? `${tx.um} sorteado` : `${tx.varios} sorteados`}`);
+    const conta = v ? `Sorteado: ${descricaoVencedor(v, e)}`
+      : (c.total ? `${livres} ${livres === 1 ? tx.um : tx.varios} na roleta` : 'Nenhum quarto cadastrado ainda');
     a.innerHTML = `
-      <figure class="cartao-foto">${foto}</figure>
+      <figure class="cartao-foto">${h.foto ? `<img src="img/hoteis/${encodeURIComponent(h.foto)}.jpg" alt="Fachada do ${esc(nomeCompleto(h))}" loading="lazy">` : '<span class="cartao-sem-foto"></span>'}</figure>
       <div class="cartao-linha">${pre ? `<span class="cartao-prefixo">${esc(pre)}</span>` : ''}<span class="cartao-nome">${esc(h.nome)}</span></div>
-      <p class="cartao-conta">${conta}</p>
+      <p class="cartao-conta">${esc(conta)}</p>
       <div class="cartao-barra" aria-hidden="true"><span></span></div>`;
-    a.querySelector('.cartao-barra span').style.width = c.total ? `${(100 * c.sorteados) / c.total}%` : '0%';
+    a.querySelector('.cartao-barra span').style.width = v ? '100%' : '0%';
     frag.append(a);
   }
+  // rodada bônus: todos os quartos de todos os hotéis numa roleta só, uma vez
+  const vb = vencedorDe(BONUS, e);
+  const bonus = document.createElement('a');
+  bonus.className = vb ? 'cartao-bonus feito' : 'cartao-bonus';
+  bonus.href = '#/bonus';
+  const naRodaBonus = rodaDe(BONUS, e).length;
+  bonus.innerHTML = `
+    <img class="bonus-simbolo" src="img/logo-casal.png" alt="">
+    <span class="bonus-titulo">Rodada bônus</span>
+    <span class="bonus-texto">Todos os quartos de todos os hotéis</span>
+    <span class="bonus-conta">${esc(vb ? `Sorteado: ${descricaoVencedor(vb, e)}` : plural(naRodaBonus, 'quarto na roleta', 'quartos na roleta'))}</span>`;
+  frag.append(bonus);
   const resumo = document.createElement('a');
   resumo.className = 'cartao-resumo';
   resumo.href = '#/resultados';
   resumo.innerHTML = `
     <span class="resumo-rotulo">Até agora</span>
     <span class="resumo-numero">${feitos}</span>
-    <span class="resumo-texto">de ${total} sorteados</span>
+    <span class="resumo-texto">de ${plural(comLista, 'hotel sorteado', 'hotéis sorteados')}</span>
     <span class="resumo-link">Ver os resultados</span>`;
   frag.append(resumo);
   $('#grade-hoteis').replaceChildren(frag);
@@ -392,242 +425,188 @@ function renderHoteis() {
 
 // ------------------------------------------------------------------ roleta
 function mostrarRoleta(id) {
-  const h = fonte.estado().hoteis.find((x) => x.id === id);
-  if (!h) { location.hash = '#/hoteis'; return; }
+  const e = fonte.estado();
+  const h = id === BONUS ? null : e.hoteis.find((x) => x.id === id);
+  if (id !== BONUS && !h) { location.hash = '#/hoteis'; return; }
   ativarTela('roleta');
   if (!roleta) roleta = new Roleta($('#roleta'), { logo: logoCasal });
   roleta.som = prefs.som ? tique : null;
-  if (prefs.musica) musica.preparar();
+  if (prefs.somGiro === 'musica') musica.preparar();
   // fora do giro, entrar na roleta é sempre começar do zero (resultado antigo não volta)
   if (!(fase === 'girando' && hotelId === id)) {
     hotelId = id;
     fase = 'pronto';
     resultado = null;
-    $('#casal').value = '';
     montarRoda();
   }
-  const pre = prefixoVisivel(h);
+  const pre = h ? prefixoVisivel(h) : '';
   $('#painel-prefixo').textContent = pre;
   $('#painel-prefixo').hidden = !pre;
-  $('#painel-nome').textContent = h.nome;
+  $('#painel-nome').textContent = h ? h.nome : 'Rodada bônus';
+  $('#painel-frase').textContent = h ? 'Sorteio do quarto' : 'Todos os quartos de todos os hotéis';
+  $('#resetar-hotel').textContent = h ? 'Resetar o sorteio deste hotel' : 'Resetar a rodada bônus';
   atualizarPainelRoleta();
-  atualizarBotoesAudio();
-  if (fase === 'pronto') setTimeout(() => $('#botao-girar').focus({ preventScroll: true }), 80);
+  atualizarBotaoSom();
+  if (fase === 'pronto') setTimeout(() => (vencedorDe(hotelId) ? $('#proximo') : $('#botao-girar')).focus({ preventScroll: true }), 80);
 }
 
 function montarRoda() {
-  const livres = livresDoHotel(fonte.estado(), hotelId);
-  idsNaRoda = livres.map((q) => q.id).join(',');
-  roleta.definirQuartos(livres);
+  const e = fonte.estado();
+  const lista = rodaDe(hotelId, e);
+  idsNaRoda = chaveDaRoda(e);
+  roleta.definirQuartos(lista);
   roleta.hotelId = hotelId;
+  const v = vencedorDe(hotelId, e);
+  if (v) roleta.mostrarVencedor(lista.findIndex((q) => q.id === v.quarto_id));
 }
 
 function atualizarPainelRoleta() {
   if (hotelId == null || !fonte) return;
   const e = fonte.estado();
-  const tipo = tipoRoleta(hotelId, e);
+  const tipo = tipoDoHotel(hotelId, e);
   const tx = TEXTOS[tipo];
-  const nomes = tipo !== 'quartos';
-  const todos = quartosDoHotel(e, hotelId);
-  let feitos = sorteiosDoHotel(e, hotelId);
-  // enquanto gira, o sorteado ainda não aparece em lugar nenhum (nada de spoiler)
-  const escondido = fase === 'girando' && resultado ? resultado.cliente_id : null;
-  if (escondido) feitos = feitos.filter((s) => s.cliente_id !== escondido);
-  const naRoda = fase === 'pronto' ? livresDoHotel(e, hotelId).length : (roleta ? roleta.quartos.length : 0);
+  const v = vencedorDe(hotelId, e);
+  const concluido = fase === 'pronto' && !!v;
+  const mostrarVencedor = fase === 'resultado' || concluido;
   const telaRoleta = $('#tela-roleta');
   telaRoleta.dataset.fase = fase;
-  telaRoleta.dataset.nomes = String(nomes);
+  telaRoleta.dataset.tipo = tipo;
+  // antes de sortear: quantos estão na roleta e o botão
+  const naRoda = fase === 'pronto' ? rodaDe(hotelId, e).length : (roleta ? roleta.quartos.length : 0);
   const conta = $('#painel-conta');
-  if (!todos.length) {
-    conta.textContent = 'Este hotel ainda não tem quartos cadastrados.';
+  if (!naRoda && fase === 'pronto' && !v) {
+    conta.textContent = emBonus() ? 'Nenhum quarto livre nos hotéis.' : 'Este hotel ainda não tem quartos cadastrados.';
   } else {
-    const unidade = `${naRoda === 1 ? tx.um : tx.varios} na roleta`;
-    conta.innerHTML = `<strong>${naRoda}</strong> ${unidade}<span class="conta-sep"></span>${plural(feitos.length, 'já sorteado', 'já sorteados')}`;
+    conta.innerHTML = `<strong>${naRoda}</strong> ${naRoda === 1 ? tx.um : tx.varios} na roleta`;
   }
-  $('#bloco-pronto').hidden = fase === 'resultado';
-  $('#bloco-resultado').hidden = fase !== 'resultado';
+  $('#bloco-pronto').hidden = mostrarVencedor;
+  $('#bloco-resultado').hidden = !mostrarVencedor;
   const semQuartos = !roleta || roleta.quartos.length === 0;
   const girarBt = $('#botao-girar');
-  girarBt.disabled = fase !== 'pronto' || semQuartos;
+  girarBt.disabled = fase !== 'pronto' || semQuartos || !!v;
   const demo = fonte.modo === 'demo' ? ' (demonstração)' : '';
   girarBt.textContent = fase === 'girando' ? 'Girando...' : `Girar a roleta${demo}`;
-  $('#casal').disabled = fase !== 'pronto' || semQuartos;
   const vazia = $('#roleta-vazia');
-  vazia.hidden = !(fase === 'pronto' && semQuartos);
-  vazia.textContent = todos.length ? tx.todos : 'Cadastre os quartos deste hotel em Configurar.';
+  vazia.hidden = !(fase === 'pronto' && semQuartos && !v);
+  vazia.textContent = emBonus() ? 'Nenhum quarto livre nos hotéis.' : 'Cadastre os quartos deste hotel em Configurar.';
   const voltar = $('.telao-voltar');
   voltar.classList.toggle('travado', fase === 'girando');
   voltar.setAttribute('aria-disabled', String(fase === 'girando'));
-  const lista = $('#ultimos');
-  lista.replaceChildren(...feitos.slice(0, 5).map((s) => {
-    const li = document.createElement('li');
-    const hora = `${esc(formatarHora(s.sorteado_em))}${s.pendente ? ', no aparelho' : ''}`;
-    if (nomes) {
-      li.className = 'li-nome';
-      li.innerHTML = `<span class="ultimo-nome">${esc(s.numero)}</span><span class="ultimo-hora">${hora}</span>`;
+  $('#resetar-hotel').disabled = fase === 'girando' || !(v || (resultado && fase === 'resultado'));
+  if (mostrarVencedor) {
+    // o vencedor: o recém-sorteado (com o aviso de gravação) ou o que já estava sorteado
+    const s = fase === 'resultado' && resultado
+      ? { numero: resultado.quarto.numero, hotel_id: resultado.quarto.hotel_id, rodada: emBonus() ? BONUS : null }
+      : v;
+    $('#resultado-rotulo').textContent = tx.rotulo;
+    const num = $('#resultado-numero');
+    num.textContent = s.numero;
+    num.classList.toggle('numero-longo', tipo !== 'nomes' && String(s.numero).length > 4);
+    num.classList.toggle('numero-nome', tipo === 'nomes');
+    const hotel = $('#resultado-hotel');
+    hotel.hidden = tipo !== 'bonus';
+    hotel.textContent = tipo === 'bonus' ? nomeDoHotel(s.hotel_id, e) : '';
+    const envio = $('#resultado-envio');
+    if (fase === 'resultado' && resultado) {
+      const textos = {
+        enviando: 'Gravando no banco...',
+        gravado: 'Gravado no banco',
+        pendente: 'Sem internet: guardado neste aparelho, envio automático',
+        conflito: resultado.mensagem || 'Outro aparelho já tinha sorteado. Nada foi gravado.',
+        codigo_invalido: 'O banco recusou o código do evento. Entre de novo com o código.',
+        demonstracao: 'Demonstração: nada foi gravado',
+      };
+      envio.textContent = textos[resultado.envio] || '';
+      envio.dataset.estado = resultado.envio;
     } else {
-      li.innerHTML = `<span class="ultimo-numero">${esc(s.numero)}</span><span class="ultimo-casal">${esc(s.casal || '')}</span><span class="ultimo-hora">${hora}</span>`;
+      envio.textContent = `Sorteado às ${formatarHora(v.sorteado_em)}${v.pendente ? ', guardado neste aparelho' : ''}`;
+      envio.dataset.estado = v.pendente ? 'pendente' : 'gravado';
     }
-    return li;
-  }));
-  $('#ultimos-titulo').hidden = feitos.length === 0;
-  $('#desfazer').disabled = fase === 'girando' || feitos.length === 0;
-  $('#resetar-hotel').disabled = fase === 'girando' || feitos.length === 0;
+    const destino = proximoDestino(e);
+    const prox = $('#proximo');
+    prox.textContent = destino.rotulo;
+    prox.dataset.hash = destino.hash;
+  }
 }
 
 async function girar() {
   if (fase !== 'pronto' || !roleta || roleta.giro) return;
+  if (vencedorDe(hotelId)) { avisar('Esta roleta já tem o sorteio feito. Para sortear de novo, resete o sorteio dela.'); return; }
   if (roleta.hotelId !== hotelId) { montarRoda(); return; }
   const lista = roleta.quartos;
   if (!lista.length) return;
-  const tipo = tipoRoleta(hotelId);
-  const nomes = tipo !== 'quartos';
+  const tipo = tipoDoHotel(hotelId);
   const alvo = sortearIndice(lista.length);
   const quarto = lista[alvo];
-  const casal = nomes ? '' : $('#casal').value.trim();
   const cliente_id = novoId();
-  resultado = { quarto, casal, cliente_id, envio: 'enviando', nomes, tipo };
+  resultado = { quarto, cliente_id, envio: 'enviando', tipo };
   fase = 'girando';
   roleta.som = prefs.som ? tique : null;
   atualizarPainelRoleta();
-  if (prefs.musica) musica.tocar();
-  // grava já no clique: o giro é a revelação de um sorteio que já aconteceu
-  fonte.registrar({ hotel_id: hotelId, quarto_id: quarto.id, numero: quarto.numero, casal, cliente_id })
+  if (prefs.somGiro === 'tambor') tambor.tocar(prefs.duracao);
+  else if (prefs.somGiro === 'musica') musica.tocar();
+  // grava já no clique: o giro é a revelação de um sorteio que já aconteceu; na rodada bônus o
+  // quarto é do próprio hotel (sai da roleta dele também) e leva a marca da rodada
+  fonte.registrar({ hotel_id: quarto.hotel_id, quarto_id: quarto.id, numero: quarto.numero, cliente_id, rodada: emBonus() ? BONUS : null })
     .then((r) => {
-      if (resultado?.cliente_id === cliente_id && resultado.envio !== 'conflito') { resultado.envio = r.envio; if (fase === 'resultado') mostrarEnvio(); }
+      if (resultado?.cliente_id === cliente_id && resultado.envio !== 'conflito') {
+        resultado.envio = r.envio;
+        if (fase === 'resultado') atualizarPainelRoleta();
+      }
       atualizarEstadoBanco();
     })
-    .catch(() => { if (resultado?.cliente_id === cliente_id) { resultado.envio = 'pendente'; if (fase === 'resultado') mostrarEnvio(); } });
+    .catch(() => { if (resultado?.cliente_id === cliente_id) { resultado.envio = 'pendente'; if (fase === 'resultado') atualizarPainelRoleta(); } });
   const parada = await roleta.girar(alvo, { duracao: prefs.duracao, desvio: sortearDesvio() });
-  musica.parar();
   if (parada.indice !== alvo) console.error('A roleta parou fora do sorteado', parada, alvo);
-  if (resultado?.cliente_id !== cliente_id) return;
+  if (resultado?.cliente_id !== cliente_id) { tambor.parar(); musica.parar(); return; }
   if (resultado.envio === 'conflito') {
-    // outro aparelho já tinha levado este quarto: não anuncia, avisa e volta a roleta atualizada
-    const msg = resultado.mensagem || 'Este quarto já tinha sido sorteado em outro aparelho. Gire de novo.';
+    // outro aparelho já tinha sorteado: não anuncia, avisa e mostra a roleta atualizada
+    tambor.parar();
+    musica.parar();
+    const msg = resultado.mensagem;
     fase = 'pronto';
     resultado = null;
     montarRoda();
     atualizarPainelRoleta();
-    avisar(msg, 9000);
+    avisar(msg || 'Outro aparelho já tinha sorteado. Nada foi gravado.', 9000);
     return;
   }
-  if (prefs.musica) tocarSino();
+  if (prefs.somGiro === 'tambor') tambor.final();
+  else if (prefs.somGiro === 'musica') { musica.parar(); tocarSino(); }
   fase = 'resultado';
-  mostrarResultado();
-}
-
-function mostrarResultado() {
-  const nomes = resultado.nomes;
-  $('#resultado-rotulo').textContent = TEXTOS[resultado.tipo || 'quartos'].rotulo;
-  // bônus: o hotel sorteado ganha um atalho para sortear o quarto dele
-  const destino = resultado.tipo === 'hoteis' ? hotelPeloNome(resultado.quarto.numero) : null;
-  const abrir = $('#abrir-hotel');
-  abrir.hidden = !destino;
-  if (destino) { abrir.textContent = `Sortear o quarto no ${nomeCompleto(destino)}`; abrir.dataset.hotel = String(destino.id); }
-  const num = $('#resultado-numero');
-  num.textContent = resultado.quarto.numero;
-  num.classList.toggle('numero-longo', !nomes && String(resultado.quarto.numero).length > 4);
-  num.classList.toggle('numero-nome', nomes);
-  $('#resultado-casal').textContent = resultado.casal || '';
-  $('#resultado-casal').hidden = nomes || !resultado.casal;
-  const corrigir = $('#corrigir-casal');
-  corrigir.hidden = nomes;
-  corrigir.textContent = resultado.casal ? 'Corrigir o nome do casal' : 'Escrever o nome do casal';
-  // acabou a roleta deste hotel: o botão leva de volta aos hotéis
-  const acabou = livresDoHotel(fonte.estado(), hotelId).length === 0;
-  $('#proximo').textContent = acabou ? 'Voltar aos hotéis' : 'Próximo sorteio';
-  $('#proximo').dataset.acao = acabou ? 'hoteis' : 'proximo';
-  mostrarEnvio();
   atualizarPainelRoleta();
   soltarLuzes();
   setTimeout(() => $('#proximo').focus({ preventScroll: true }), 60);
 }
 
-function mostrarEnvio() {
-  if (!resultado) return;
-  const textos = {
-    enviando: 'Gravando no banco...',
-    gravado: 'Gravado no banco',
-    pendente: 'Sem internet: guardado neste aparelho, envio automático',
-    conflito: 'Este quarto já tinha sido sorteado em outro aparelho. Gire de novo.',
-    codigo_invalido: 'O banco recusou o código do evento. Entre de novo com o código.',
-    demonstracao: 'Demonstração: nada foi gravado',
-  };
-  const el = $('#resultado-envio');
-  el.textContent = textos[resultado.envio] || '';
-  el.dataset.estado = resultado.envio;
-}
-
-function proximo() {
-  if (fase !== 'resultado') return;
-  const irHoteis = $('#proximo').dataset.acao === 'hoteis';
+function irAdiante() {
+  if (fase === 'girando') return;
+  const hash = $('#proximo').dataset.hash || '#/hoteis';
   fase = 'pronto';
   resultado = null;
-  $('#casal').value = '';
-  if (irHoteis) { location.hash = '#/hoteis'; return; }
+  location.hash = hash;
+}
+
+async function resetarRoleta() {
+  const e = fonte.estado();
+  const validos = e.sorteios.filter((s) => !s.anulado_em && (emBonus() ? s.rodada === BONUS : (s.hotel_id === hotelId && s.rodada !== BONUS)));
+  if (!validos.length || fase === 'girando') return;
+  const bonus = emBonus();
+  const h = bonus ? null : e.hoteis.find((x) => x.id === hotelId);
+  const item = descricaoVencedor(validos[0], e);
+  const ok = await confirmar({
+    titulo: bonus ? 'Resetar a rodada bônus?' : `Resetar o sorteio do ${nomeCompleto(h)}?`,
+    texto: `${maiuscula(item)} deixa de ser o sorteado e a roleta ${bonus ? 'bônus' : 'deste hotel'} pode girar de novo. O histórico fica guardado como reset.`,
+    botao: bonus ? 'Resetar a rodada bônus' : 'Resetar este hotel',
+  });
+  if (!ok) return;
+  for (const s of validos) await fonte.anular(s.cliente_id, 'reset');
+  avisar(bonus ? 'Rodada bônus resetada: a roleta pode girar de novo.' : `Sorteio do ${nomeCompleto(h)} resetado: a roleta pode girar de novo.`);
+  fase = 'pronto';
+  resultado = null;
   montarRoda();
   atualizarPainelRoleta();
   setTimeout(() => $('#botao-girar').focus({ preventScroll: true }), 30);
-}
-
-async function corrigirCasal() {
-  if (!resultado || resultado.nomes) return;
-  const novo = await confirmar({
-    titulo: `Casal do quarto ${resultado.quarto.numero}`,
-    texto: '', campo: 'Nome do casal', valor: resultado.casal, botao: 'Salvar o nome',
-  });
-  if (novo == null) return;
-  resultado.casal = novo.trim();
-  $('#resultado-casal').textContent = resultado.casal;
-  $('#resultado-casal').hidden = !resultado.casal;
-  $('#corrigir-casal').textContent = resultado.casal ? 'Corrigir o nome do casal' : 'Escrever o nome do casal';
-  const r = await fonte.atualizarCasal(resultado.cliente_id, resultado.casal);
-  if (r.envio === 'pendente') avisar('Nome guardado neste aparelho; vai para o banco quando a internet voltar.');
-  atualizarPainelRoleta();
-}
-
-async function desfazer() {
-  const ultimo = sorteiosDoHotel(fonte.estado(), hotelId)[0];
-  if (!ultimo || fase === 'girando') return;
-  const nomes = modoNomes(hotelId);
-  const item = rotuloItem(ultimo.numero, nomes);
-  const ok = await confirmar({
-    titulo: 'Desfazer o último sorteio?',
-    texto: `${item.charAt(0).toUpperCase()}${item.slice(1)}${ultimo.casal ? ` (${ultimo.casal})` : ''} volta para a roleta. O registro fica guardado como desfeito.`,
-    botao: 'Desfazer',
-  });
-  if (!ok) return;
-  await fonte.anular(ultimo.cliente_id, 'desfeito');
-  avisar(`${item.charAt(0).toUpperCase()}${item.slice(1)} voltou para a roleta.`);
-  fase = 'pronto';
-  resultado = null;
-  montarRoda();
-  atualizarPainelRoleta();
-}
-
-async function resetarHotel() {
-  const h = hotelAtual();
-  const n = sorteiosDoHotel(fonte.estado(), hotelId).length;
-  if (!h || !n || fase === 'girando') return;
-  const nomes = modoNomes(hotelId);
-  const coisa = nomes ? ['O casal sorteado volta', `Os ${n} casais sorteados voltam`] : ['O quarto sorteado volta', `Os ${n} quartos sorteados voltam`];
-  const ok = await confirmar({
-    titulo: `Resetar o sorteio do ${nomeCompleto(h)}?`,
-    texto: `${n === 1 ? coisa[0] : coisa[1]} para a roleta deste hotel. O histórico fica guardado. Os outros hotéis não mudam.`,
-    botao: 'Resetar este hotel',
-  });
-  if (!ok) return;
-  try {
-    const r = await fonte.resetar(hotelId);
-    avisar(`Sorteio do ${nomeCompleto(h)} resetado: ${plural(r.anulados, 'sorteio voltou', 'sorteios voltaram')} para a roleta.`);
-    fase = 'pronto';
-    resultado = null;
-    montarRoda();
-    atualizarPainelRoleta();
-  } catch (e) {
-    avisar(mensagemErro(e), 8000);
-  }
 }
 
 function soltarLuzes() {
@@ -648,17 +627,17 @@ function soltarLuzes() {
   setTimeout(() => caixa.replaceChildren(), 4800);
 }
 
-function atualizarBotoesAudio() {
-  const b = $('#musica');
-  b.textContent = prefs.musica ? 'Música: ligada' : 'Música: desligada';
-  b.setAttribute('aria-pressed', String(prefs.musica));
+function atualizarBotaoSom() {
+  const b = $('#som-giro');
+  b.textContent = NOME_SOM[prefs.somGiro];
+  $('#pref-som-giro').value = prefs.somGiro;
 }
 
-function alternarMusica() {
-  prefs.musica = !prefs.musica;
+function trocarSom() {
+  prefs.somGiro = SONS[(SONS.indexOf(prefs.somGiro) + 1) % SONS.length];
   salvarPrefs();
-  atualizarBotoesAudio();
-  if (prefs.musica) musica.preparar(); else musica.parar(200);
+  atualizarBotaoSom();
+  if (prefs.somGiro === 'musica') musica.preparar();
 }
 
 function telaCheia() {
@@ -679,18 +658,19 @@ function situacaoDe(s) {
 
 function linhasResultado(e, filtro, comDesfeitos) {
   const ordemHotel = new Map(e.hoteis.map((h, i) => [h.id, i]));
-  const nomes = new Map(e.hoteis.map((h) => [h.id, nomeCompleto(h)]));
   return e.sorteios
-    .filter((s) => (filtro === 'todos' || s.hotel_id === filtro) && (comDesfeitos || !s.anulado_em))
-    .sort((a, b) => ((ordemHotel.get(a.hotel_id) ?? 99) - (ordemHotel.get(b.hotel_id) ?? 99))
+    .filter((s) => (filtro === 'todos' || (filtro === BONUS ? s.rodada === BONUS : (s.hotel_id === filtro && s.rodada !== BONUS)))
+      && (comDesfeitos || !s.anulado_em))
+    .sort((a, b) => ((a.rodada === BONUS) - (b.rodada === BONUS))
+      || ((ordemHotel.get(a.hotel_id) ?? 99) - (ordemHotel.get(b.hotel_id) ?? 99))
       || String(a.sorteado_em).localeCompare(String(b.sorteado_em)))
-    .map((s) => ({ s, hotel: nomes.get(s.hotel_id) || 'Hotel removido' }));
+    .map((s) => ({ s, hotel: nomeDoHotel(s.hotel_id, e) }));
 }
 
 function renderResultados() {
   const e = fonte.estado();
-  if (filtroHotel !== 'todos' && !e.hoteis.some((h) => h.id === filtroHotel)) filtroHotel = 'todos';
-  const filtros = [{ id: 'todos', nome: 'Todos os hotéis' }, ...e.hoteis.map((h) => ({ id: h.id, nome: h.nome }))];
+  if (filtroHotel !== 'todos' && filtroHotel !== BONUS && !e.hoteis.some((h) => h.id === filtroHotel)) filtroHotel = 'todos';
+  const filtros = [{ id: 'todos', nome: 'Todos' }, ...e.hoteis.map((h) => ({ id: h.id, nome: h.nome })), { id: BONUS, nome: 'Rodada bônus' }];
   $('#filtros').replaceChildren(...filtros.map((f) => {
     const b = document.createElement('button');
     b.type = 'button';
@@ -702,25 +682,24 @@ function renderResultados() {
   }));
   $('#mostrar-desfeitos').checked = mostrarDesfeitos;
   const linhas = linhasResultado(e, filtroHotel, mostrarDesfeitos);
-  const corpo = $('#tabela-corpo');
-  corpo.replaceChildren(...linhas.map(({ s, hotel }) => {
+  $('#tabela-corpo').replaceChildren(...linhas.map(({ s, hotel }) => {
     const tr = document.createElement('tr');
     if (s.anulado_em) tr.className = 'desfeito';
-    tr.innerHTML = `<td>${esc(hotel)}</td><td class="col-quarto">${esc(s.numero)}</td><td>${esc(s.casal || '')}</td><td class="col-hora">${esc(formatarDataHora(s.sorteado_em))}</td><td class="col-situacao">${esc(situacaoDe(s))}</td>`;
+    tr.innerHTML = `<td>${esc(hotel)}</td><td class="col-quarto">${esc(s.numero)}</td><td class="col-rodada">${s.rodada === BONUS ? 'Bônus' : 'Do hotel'}</td><td class="col-hora">${esc(formatarDataHora(s.sorteado_em))}</td><td class="col-situacao">${esc(situacaoDe(s))}</td>`;
     return tr;
   }));
-  const validos = e.sorteios.filter((s) => !s.anulado_em).length;
-  const total = e.quartos.length;
-  $('#resultados-resumo').textContent = `${validos} de ${total} sorteados em ${plural(e.hoteis.length, 'hotel', 'hotéis')}.`;
+  const feitos = e.hoteis.filter((h) => vencedorDe(h.id, e)).length;
+  const vb = vencedorDe(BONUS, e);
+  $('#resultados-resumo').textContent = `${feitos} de ${plural(e.hoteis.length, 'hotel sorteado', 'hotéis sorteados')}${vb ? ', e a rodada bônus' : ''}.`;
   $('#resultados-vazio').hidden = linhas.length > 0;
-  $('#resetar-tudo').disabled = validos === 0;
+  $('#resetar-tudo').disabled = !e.sorteios.some((s) => !s.anulado_em);
 }
 
 function baixarPlanilha() {
   const e = fonte.estado();
   const linhas = linhasResultado(e, filtroHotel, mostrarDesfeitos);
-  const tabela = [['Hotel', 'Sorteado', 'Casal', 'Data e hora', 'Situação'],
-    ...linhas.map(({ s, hotel }) => [hotel, s.numero, s.casal || '', formatarDataHora(s.sorteado_em), situacaoDe(s)])];
+  const tabela = [['Hotel', 'Sorteado', 'Rodada', 'Data e hora', 'Situação'],
+    ...linhas.map(({ s, hotel }) => [hotel, s.numero, s.rodada === BONUS ? 'Bônus' : 'Do hotel', formatarDataHora(s.sorteado_em), situacaoDe(s)])];
   const blob = new Blob([gerarCsv(tabela)], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
   const hoje = new Date();
@@ -738,7 +717,7 @@ async function resetarTudo() {
   if (!validos) return;
   const ok = await confirmar({
     titulo: 'Resetar todo o sorteio?',
-    texto: `${validos === 1 ? 'O sorteio feito volta' : `Os ${validos} sorteios feitos em todos os hotéis voltam`} para as roletas. O histórico fica guardado como reset.`,
+    texto: `${validos === 1 ? 'O sorteio feito volta' : `Os ${validos} sorteios feitos (hotéis e rodada bônus) voltam`} para as roletas, e todas podem girar de novo. O histórico fica guardado como reset.`,
     botao: 'Resetar todo o sorteio',
     exigir: 'RESETAR',
   });
@@ -763,7 +742,7 @@ function renderConfig() {
   $('#config-hoteis').replaceChildren(...e.hoteis.map((h) => blocoHotel(h, e)));
   $('#pref-duracao').value = String(prefs.duracao);
   $('#pref-som').checked = prefs.som;
-  $('#pref-musica').checked = prefs.musica;
+  $('#pref-som-giro').value = prefs.somGiro;
   $('#bloco-sair').hidden = fonte.modo !== 'remoto';
 }
 
@@ -855,7 +834,7 @@ function blocoHotel(h, e) {
       const out = await fonte.removerHotel(h.id);
       if (out && out.ok === false) {
         avisar(out.motivo === 'tem_sorteio_valido'
-          ? 'Este hotel tem sorteios feitos. Resete o sorteio dele antes de remover.'
+          ? 'Este hotel tem sorteio feito. Resete o sorteio dele antes de remover.'
           : 'Não deu para remover este hotel.', 8000);
         return;
       }
@@ -903,20 +882,10 @@ async function sair() {
 function ligarEventos() {
   window.addEventListener('hashchange', rotear);
   $('#form-entrada').addEventListener('submit', entrar);
-  $('#form-casal').addEventListener('submit', (ev) => { ev.preventDefault(); girar(); });
-  $('#casal').addEventListener('keydown', (ev) => { if (ev.key === 'Escape') { ev.stopPropagation(); ev.target.blur(); $('#botao-girar').focus(); } });
-  $('#proximo').addEventListener('click', proximo);
-  $('#abrir-hotel').addEventListener('click', (ev) => {
-    if (fase !== 'resultado') return;
-    const id = ev.currentTarget.dataset.hotel;
-    fase = 'pronto';
-    resultado = null;
-    location.hash = `#/roleta/${id}`;
-  });
-  $('#corrigir-casal').addEventListener('click', corrigirCasal);
-  $('#desfazer').addEventListener('click', desfazer);
-  $('#resetar-hotel').addEventListener('click', resetarHotel);
-  $('#musica').addEventListener('click', alternarMusica);
+  $('#botao-girar').addEventListener('click', girar);
+  $('#proximo').addEventListener('click', irAdiante);
+  $('#resetar-hotel').addEventListener('click', resetarRoleta);
+  $('#som-giro').addEventListener('click', trocarSom);
   $('#tela-cheia').addEventListener('click', telaCheia);
   $('.telao-voltar').addEventListener('click', (ev) => { if (fase === 'girando') { ev.preventDefault(); avisar('Espere a roleta parar.'); } });
   $('#baixar').addEventListener('click', baixarPlanilha);
@@ -926,7 +895,7 @@ function ligarEventos() {
   $('#adicionar-hotel').addEventListener('click', adicionarHotel);
   $('#pref-duracao').addEventListener('change', (ev) => { prefs.duracao = Number(ev.target.value); salvarPrefs(); avisar('Duração do giro salva neste aparelho.'); });
   $('#pref-som').addEventListener('change', (ev) => { prefs.som = ev.target.checked; salvarPrefs(); });
-  $('#pref-musica').addEventListener('change', (ev) => { prefs.musica = ev.target.checked; salvarPrefs(); atualizarBotoesAudio(); });
+  $('#pref-som-giro').addEventListener('change', (ev) => { prefs.somGiro = ev.target.value; salvarPrefs(); atualizarBotaoSom(); });
   $('#sair').addEventListener('click', sair);
 
   document.addEventListener('keydown', (ev) => {
@@ -934,10 +903,7 @@ function ligarEventos() {
     const emCampo = ev.target.matches('input, textarea, select');
     if (ev.key === ' ' && !emCampo && !ev.target.matches('button')) {
       ev.preventDefault();
-      if (fase === 'pronto') girar(); else if (fase === 'resultado') proximo();
-    } else if (ev.key === 'Enter' && !emCampo && !ev.target.matches('button, a') && fase === 'resultado') {
-      ev.preventDefault();
-      proximo();
+      if (fase === 'pronto' && !vencedorDe(hotelId)) girar();
     } else if (ev.key === 'Escape' && fase !== 'girando' && !emCampo) {
       location.hash = '#/hoteis';
     } else if ((ev.key === 'f' || ev.key === 'F') && !emCampo && !ev.ctrlKey && !ev.metaKey) {
@@ -973,9 +939,10 @@ window.__sorteio = {
   get fase() { return fase; },
   get resultado() { return resultado; },
   get pendentes() { return fonte ? fonte.pendentes() : 0; },
+  get tambor() { return { tocando: tambor.tocando }; },
   get musica() {
     const a = musica.audio;
-    return { tocando: !!(a && !a.paused), tempo: a ? a.currentTime : 0, volume: a ? a.volume : 0, memoria: !!musica.blobUrl };
+    return { tocando: !!(a && !a.paused), tempo: a ? a.currentTime : 0 };
   },
 };
 

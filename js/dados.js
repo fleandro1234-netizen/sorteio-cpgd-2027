@@ -44,8 +44,8 @@ export function estadoVisivel(base, fila) {
     if (op.op === 'registrar') {
       if (!e.sorteios.some((s) => s.cliente_id === op.cliente_id)) {
         e.sorteios.push({ id: null, cliente_id: op.cliente_id, hotel_id: op.hotel_id, quarto_id: op.quarto_id,
-          numero: op.numero, casal: op.casal || null, sorteado_em: op.sorteado_em, anulado_em: null,
-          motivo_anulacao: null, pendente: true });
+          numero: op.numero, casal: op.casal || null, rodada: op.rodada || null, sorteado_em: op.sorteado_em,
+          anulado_em: null, motivo_anulacao: null, pendente: true });
       }
     } else if (op.op === 'anular') {
       const s = e.sorteios.find((x) => x.cliente_id === op.cliente_id && !x.anulado_em);
@@ -188,7 +188,9 @@ export class FonteRemota {
       let r;
       try {
         if (op.op === 'registrar') {
-          r = await this._rpc('registrar_sorteio', { p_cliente_id: op.cliente_id, p_quarto_id: op.quarto_id, p_casal: op.casal || null });
+          const corpo = { p_cliente_id: op.cliente_id, p_quarto_id: op.quarto_id, p_casal: op.casal || null };
+          if (op.rodada) corpo.p_rodada = op.rodada; // só quando houver: compatível com a função antiga
+          r = await this._rpc('registrar_sorteio', corpo);
         } else if (op.op === 'anular') {
           r = await this._rpc('anular_sorteio', { p_cliente_id: op.cliente_id, p_motivo: op.motivo });
         } else {
@@ -221,8 +223,8 @@ export class FonteRemota {
     return 'gravado';
   }
 
-  async registrar({ hotel_id, quarto_id, numero, casal, cliente_id = novoId() }) {
-    const op = { op: 'registrar', cliente_id, hotel_id, quarto_id, numero, casal: String(casal || '').trim(), sorteado_em: agoraIso() };
+  async registrar({ hotel_id, quarto_id, numero, casal, rodada = null, cliente_id = novoId() }) {
+    const op = { op: 'registrar', cliente_id, hotel_id, quarto_id, numero, casal: String(casal || '').trim(), rodada, sorteado_em: agoraIso() };
     this.fila.push(op);
     this._salvar();
     this._avisar();
@@ -300,8 +302,8 @@ export class FonteDemo {
   async enviarFila() { return { situacao: 'em_dia' }; }
   _avisar() { try { this.aoMudar?.(); } catch { /* idem */ } }
 
-  async registrar({ hotel_id, quarto_id, numero, casal, cliente_id = novoId() }) {
-    const s = { id: ++this._seq, cliente_id, hotel_id, quarto_id, numero, casal: String(casal || '').trim() || null,
+  async registrar({ hotel_id, quarto_id, numero, casal, rodada = null, cliente_id = novoId() }) {
+    const s = { id: ++this._seq, cliente_id, hotel_id, quarto_id, numero, casal: String(casal || '').trim() || null, rodada,
       sorteado_em: agoraIso(), anulado_em: null, motivo_anulacao: null };
     if (this.base.sorteios.some((x) => x.quarto_id === quarto_id && !x.anulado_em)) return { sorteio: s, envio: 'conflito' };
     this.base.sorteios.push(s);
