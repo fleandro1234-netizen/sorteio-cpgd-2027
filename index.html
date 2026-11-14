@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://hfwrzhugtochmoukmbpr.supabase.co; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self'; script-src 'self'; font-src 'self'; worker-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'">
+<meta name="theme-color" content="#0A1D2E">
+<title>Sorteio dos quartos, 29º Congresso de Casais</title>
+<link rel="icon" type="image/png" href="img/icone-64.png">
+<link rel="apple-touch-icon" href="img/icone-180.png">
+<link rel="stylesheet" href="css/estilo.css">
+<script type="module" src="js/app.js"></script>
+</head>
+<body>
+
+<div class="faixa-demo" role="note">Demonstração com quartos de exemplo: nada é gravado no banco. <a href="./">Sair da demonstração</a></div>
+
+<!-- ============================================================ ENTRADA -->
+<section id="tela-entrada" class="tela tela-entrada" hidden aria-labelledby="entrada-titulo">
+  <div class="entrada-bloco">
+    <img class="entrada-logo" src="img/logo-nome.png" alt="Casados para Glória de Deus" width="1000" height="319">
+    <h1 id="entrada-titulo" class="entrada-titulo">
+      <span class="entrada-29 ouro-metal">29º</span>
+      <span class="entrada-congresso">Congresso de Casais</span>
+    </h1>
+    <p class="entrada-frase">Sorteio dos quartos</p>
+    <form id="form-entrada" class="entrada-form" autocomplete="off">
+      <label for="codigo" class="entrada-rotulo">Código do evento</label>
+      <input id="codigo" name="codigo" class="entrada-codigo" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="12" placeholder="XXXX-XXXX" required>
+      <button id="botao-entrar" type="submit" class="botao-nobre">Entrar</button>
+      <p id="entrada-erro" class="entrada-erro" role="alert"></p>
+    </form>
+    <a class="entrada-demo" href="?demo=1#/hoteis">Ver a demonstração, sem gravar nada</a>
+    <p class="entrada-data">19, 20 e 21 de novembro de 2027, Águas de Lindóia</p>
+  </div>
+</section>
+
+<!-- ============================================================ HOTÉIS -->
+<section id="tela-hoteis" class="tela tela-folder" hidden aria-labelledby="hoteis-titulo">
+  <header class="faixa">
+    <img class="faixa-logo" src="img/logo-nome.png" alt="Casados para Glória de Deus" width="1000" height="319">
+    <div class="faixa-centro">
+      <h1 id="hoteis-titulo" class="faixa-titulo">Sorteio dos quartos</h1>
+      <p class="faixa-sub">29º Congresso de Casais · 19, 20 e 21 de novembro de 2027</p>
+    </div>
+    <svg class="aliancas" viewBox="0 0 84 52" aria-hidden="true"><circle cx="30" cy="26" r="20"/><circle cx="54" cy="26" r="20"/></svg>
+  </header>
+  <main class="folder-corpo">
+    <p class="folder-intro">Escolha o hotel para abrir a roleta dos quartos dele.</p>
+    <div id="grade-hoteis" class="grade-hoteis"></div>
+    <p id="hoteis-vazio" class="vazio" hidden>Nenhum hotel cadastrado. Cadastre em Configurar.</p>
+    <p class="credito">Música do giro: "Sneaky Snitch", de Kevin MacLeod (incompetech.com), licença Creative Commons Atribuição 4.0.</p>
+  </main>
+  <footer class="rodape">
+    <nav class="rodape-nav" aria-label="Seções">
+      <a href="#/resultados">Resultados</a>
+      <a href="#/configurar">Configurar hotéis e quartos</a>
+    </nav>
+    <span class="estado-banco" role="status"></span>
+  </footer>
+</section>
+
+<!-- ============================================================ ROLETA (telão) -->
+<section id="tela-roleta" class="tela tela-telao" hidden aria-labelledby="painel-nome">
+  <header class="telao-topo">
+    <a class="telao-voltar" href="#/hoteis">Voltar aos hotéis</a>
+    <img class="telao-logo" src="img/logo-nome.png" alt="Casados para Glória de Deus" width="1000" height="319">
+    <span class="telao-evento">29º Congresso de Casais</span>
+  </header>
+  <div class="telao-corpo">
+    <div class="roleta-area">
+      <div id="roleta" class="roleta"></div>
+      <p id="roleta-vazia" class="roleta-vazia" hidden></p>
+    </div>
+    <div class="painel">
+      <div class="painel-hotel">
+        <span id="painel-prefixo" class="painel-prefixo">HOTEL</span>
+        <h1 id="painel-nome" class="painel-nome ouro-metal"></h1>
+        <p class="painel-frase">Sorteio dos quartos</p>
+      </div>
+      <div id="bloco-pronto" class="bloco-pronto">
+        <p id="painel-conta" class="painel-conta"></p>
+        <form id="form-casal" class="form-casal" autocomplete="off">
+          <label for="casal" class="casal-rotulo">Casal (opcional)</label>
+          <input id="casal" class="casal-campo" maxlength="120" autocomplete="off" placeholder="Nome do casal">
+          <button id="botao-girar" type="submit" class="botao-nobre botao-girar">Girar a roleta</button>
+        </form>
+      </div>
+      <div id="bloco-resultado" class="bloco-resultado" hidden aria-live="assertive">
+        <span id="resultado-rotulo" class="resultado-rotulo">Quarto</span>
+        <span id="resultado-numero" class="resultado-numero ouro-metal"></span>
+        <span id="resultado-casal" class="resultado-casal"></span>
+        <span id="resultado-envio" class="resultado-envio"></span>
+        <div class="resultado-acoes">
+          <button id="proximo" type="button" class="botao-nobre">Próximo sorteio</button>
+          <button id="abrir-hotel" type="button" class="botao-linha" hidden></button>
+          <button id="corrigir-casal" type="button" class="botao-linha">Corrigir o nome do casal</button>
+        </div>
+      </div>
+      <div class="ultimos-bloco">
+        <h2 id="ultimos-titulo" class="ultimos-titulo">Últimos sorteados</h2>
+        <ol id="ultimos" class="ultimos"></ol>
+      </div>
+    </div>
+  </div>
+  <div id="luzes" class="luzes" aria-hidden="true"></div>
+  <footer class="telao-rodape">
+    <button id="musica" type="button" class="botao-linha" aria-pressed="true">Música: ligada</button>
+    <button id="tela-cheia" type="button" class="botao-linha">Tela cheia</button>
+    <button id="desfazer" type="button" class="botao-linha">Desfazer o último</button>
+    <button id="resetar-hotel" type="button" class="botao-linha">Resetar este hotel</button>
+    <span class="estado-banco" role="status"></span>
+  </footer>
+</section>
+
+<!-- ============================================================ RESULTADOS -->
+<section id="tela-resultados" class="tela tela-folder" hidden aria-labelledby="resultados-titulo">
+  <header class="faixa">
+    <img class="faixa-logo" src="img/logo-nome.png" alt="Casados para Glória de Deus" width="1000" height="319">
+    <div class="faixa-centro">
+      <h1 id="resultados-titulo" class="faixa-titulo">Resultados do sorteio</h1>
+      <p class="faixa-sub">29º Congresso de Casais · quartos por hotel</p>
+    </div>
+    <svg class="aliancas" viewBox="0 0 84 52" aria-hidden="true"><circle cx="30" cy="26" r="20"/><circle cx="54" cy="26" r="20"/></svg>
+  </header>
+  <main class="folder-corpo">
+    <div class="resultados-topo">
+      <p id="resultados-resumo" class="resultados-resumo"></p>
+      <div class="resultados-acoes">
+        <button id="baixar" type="button" class="botao-claro">Baixar planilha</button>
+        <button id="imprimir" type="button" class="botao-claro">Imprimir</button>
+      </div>
+    </div>
+    <div id="filtros" class="filtros" role="group" aria-label="Filtrar por hotel"></div>
+    <label class="campo-marcar marcar-desfeitos"><input id="mostrar-desfeitos" type="checkbox"><span>Mostrar também os desfeitos e resetados</span></label>
+    <div class="tabela-rolagem">
+      <table class="tabela">
+        <thead><tr><th scope="col">Hotel</th><th scope="col">Sorteado</th><th scope="col">Casal</th><th scope="col">Data e hora</th><th scope="col">Situação</th></tr></thead>
+        <tbody id="tabela-corpo"></tbody>
+      </table>
+    </div>
+    <p id="resultados-vazio" class="vazio" hidden>Nenhum quarto sorteado ainda.</p>
+    <section class="zona-reset" aria-labelledby="reset-titulo">
+      <h2 id="reset-titulo">Resetar o sorteio</h2>
+      <p>Devolve todos os quartos sorteados para as roletas de todos os hotéis. O histórico fica guardado. Para resetar só um hotel, use o botão na roleta dele.</p>
+      <button id="resetar-tudo" type="button" class="botao-escuro">Resetar todo o sorteio</button>
+    </section>
+  </main>
+  <footer class="rodape">
+    <nav class="rodape-nav" aria-label="Seções">
+      <a href="#/hoteis">Voltar aos hotéis</a>
+      <a href="#/configurar">Configurar hotéis e quartos</a>
+    </nav>
+    <span class="estado-banco" role="status"></span>
+  </footer>
+</section>
+
+<!-- ============================================================ CONFIGURAR -->
+<section id="tela-configurar" class="tela tela-folder" hidden aria-labelledby="config-titulo">
+  <header class="faixa">
+    <img class="faixa-logo" src="img/logo-nome.png" alt="Casados para Glória de Deus" width="1000" height="319">
+    <div class="faixa-centro">
+      <h1 id="config-titulo" class="faixa-titulo">Hotéis e quartos</h1>
+      <p class="faixa-sub">29º Congresso de Casais · cadastro do sorteio</p>
+    </div>
+    <svg class="aliancas" viewBox="0 0 84 52" aria-hidden="true"><circle cx="30" cy="26" r="20"/><circle cx="54" cy="26" r="20"/></svg>
+  </header>
+  <main class="folder-corpo">
+    <p class="folder-intro">Cole os quartos de cada hotel: vale intervalo (101 a 120), número solto e um por linha; no hotel que sorteia nomes, um nome por linha. Quarto já sorteado nunca sai da lista.</p>
+    <div id="config-hoteis" class="config-hoteis"></div>
+    <button id="adicionar-hotel" type="button" class="botao-claro">Adicionar hotel</button>
+    <section class="config-aparelho" aria-labelledby="aparelho-titulo">
+      <h2 id="aparelho-titulo">Neste aparelho</h2>
+      <div class="config-linha">
+        <label class="campo"><span>Duração do giro</span>
+          <select id="pref-duracao">
+            <option value="6">Rápido, 6 segundos</option>
+            <option value="9">Normal, 9 segundos</option>
+            <option value="13">Com suspense, 13 segundos</option>
+          </select>
+        </label>
+        <label class="campo-marcar"><input id="pref-musica" type="checkbox"><span>Música de suspense durante o giro</span></label>
+        <label class="campo-marcar"><input id="pref-som" type="checkbox"><span>Som de tique ao girar</span></label>
+      </div>
+      <p class="credito">Música do giro: "Sneaky Snitch", de Kevin MacLeod (incompetech.com), licença Creative Commons Atribuição 4.0.</p>
+      <div id="bloco-sair" class="bloco-sair">
+        <button id="sair" type="button" class="botao-discreto">Sair deste aparelho</button>
+      </div>
+    </section>
+  </main>
+  <footer class="rodape">
+    <nav class="rodape-nav" aria-label="Seções">
+      <a href="#/hoteis">Voltar aos hotéis</a>
+      <a href="#/resultados">Resultados</a>
+    </nav>
+    <span class="estado-banco" role="status"></span>
+  </footer>
+</section>
+
+<dialog id="dialogo" class="dialogo" aria-labelledby="dialogo-titulo">
+  <form method="dialog">
+    <h2 id="dialogo-titulo"></h2>
+    <p id="dialogo-texto"></p>
+    <label id="dialogo-rotulo" class="dialogo-rotulo" hidden><span id="dialogo-campo-texto"></span><input id="dialogo-campo" autocomplete="off" maxlength="120"></label>
+    <div class="dialogo-acoes">
+      <button value="ok" id="dialogo-ok" class="botao-nobre">Confirmar</button>
+      <button value="cancelar" class="botao-linha" formnovalidate>Cancelar</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="aviso" class="aviso" role="status" aria-live="polite" hidden></div>
+</body>
+</html>
