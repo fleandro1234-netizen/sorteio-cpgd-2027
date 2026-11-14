@@ -106,7 +106,7 @@ body.modo-demo .faixa-demo {
   padding: 11px 18px;
   cursor: pointer;
 }
-.botao-claro:hover { background: #F1E7D2; }
+.botao-claro:hover:not(:disabled) { background: #F1E7D2; }
 .botao-escuro {
   background: var(--marinho);
   color: var(--ouro-claro);
@@ -128,7 +128,8 @@ body.modo-demo .faixa-demo {
   padding: 4px 0;
   cursor: pointer;
 }
-.botao-discreto:hover { color: var(--marinho); }
+.botao-discreto:hover:not(:disabled) { color: var(--marinho); }
+.botao-discreto:disabled { opacity: 0.45; cursor: default; }
 
 /* ------------------------------------------------------------ estado do banco */
 .estado-banco { display: inline-flex; align-items: center; gap: 8px; font: 400 14px/1.3 var(--sans); }
@@ -233,6 +234,10 @@ body.modo-demo .faixa-demo {
 }
 .aliancas { width: clamp(56px, 5vw, 84px); height: auto; fill: none; stroke: var(--ouro); stroke-width: 1.6; }
 .folder-corpo { width: 100%; max-width: 1760px; margin: 0 auto; padding: clamp(24px, 3vw, 48px) 4vw; }
+.hoteis-topo { display: flex; justify-content: space-between; align-items: center; gap: 16px 28px; flex-wrap: wrap; margin: 0 0 28px; }
+.hoteis-topo .folder-intro { margin: 0; }
+.hoteis-acoes { display: flex; align-items: center; gap: 12px 32px; flex-wrap: wrap; }
+.botao-claro:disabled { opacity: 0.45; cursor: default; }
 .folder-intro { margin: 0 0 28px; font: 400 clamp(24px, 1.9vw, 32px)/1.25 var(--script); color: var(--ouro-escuro); }
 .vazio { font: italic 400 20px/1.5 var(--serif); color: var(--tinta-suave); }
 
@@ -510,7 +515,7 @@ body.modo-demo .faixa-demo {
 .resultado-envio[data-estado="pendente"],
 .resultado-envio[data-estado="conflito"],
 .resultado-envio[data-estado="codigo_invalido"] { color: var(--azul-aviso); font-weight: 600; }
-.resultado-acoes { display: flex; flex-direction: column; align-items: center; gap: 1.4vh; margin-top: 2.2vh; }
+.resultado-acoes { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 1.4vh 30px; margin-top: 2.2vh; }
 
 .ultimos-bloco { width: min(100%, 540px); }
 .ultimos-titulo {
@@ -674,11 +679,12 @@ tr.desfeito .col-quarto { color: #8A8F96; text-decoration: line-through; }
   flex-direction: column;
   gap: 8px;
   margin-bottom: 22px;
-  font: 600 12px/1.2 var(--sans);
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
+  font: 600 15px/1.3 var(--sans);
+  letter-spacing: 0.04em;
   color: var(--ouro);
 }
+.dialogo-rotulo strong { color: #fff; font-weight: 700; letter-spacing: 0.14em; }
+.dialogo-rotulo input::placeholder { color: rgba(230, 211, 168, 0.32); letter-spacing: 0.14em; }
 .dialogo-rotulo input {
   font: 400 20px/1.3 var(--serif);
   letter-spacing: 0.03em;

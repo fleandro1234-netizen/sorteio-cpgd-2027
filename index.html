@@ -48,7 +48,13 @@
     <svg class="aliancas" viewBox="0 0 84 52" aria-hidden="true"><circle cx="30" cy="26" r="20"/><circle cx="54" cy="26" r="20"/></svg>
   </header>
   <main class="folder-corpo">
-    <p class="folder-intro">Um quarto sorteado por hotel e, no fim, a rodada bônus com os quartos de todos os hotéis.</p>
+    <div class="hoteis-topo">
+      <p class="folder-intro">Um quarto sorteado por hotel e, no fim, a rodada bônus com os quartos de todos os hotéis.</p>
+      <div class="hoteis-acoes">
+        <button id="extrair-hoteis" type="button" class="botao-claro">Extrair ganhadores</button>
+        <button id="resetar-tudo-hoteis" type="button" class="botao-discreto">Resetar todo o sorteio</button>
+      </div>
+    </div>
     <div id="grade-hoteis" class="grade-hoteis"></div>
     <p id="hoteis-vazio" class="vazio" hidden>Nenhum hotel cadastrado. Cadastre em Configurar.</p>
     <p class="credito">Música do giro: "Sneaky Snitch", de Kevin MacLeod (incompetech.com), licença Creative Commons Atribuição 4.0.</p>
@@ -91,6 +97,7 @@
         <span id="resultado-envio" class="resultado-envio"></span>
         <div class="resultado-acoes">
           <button id="proximo" type="button" class="botao-nobre">Próximo hotel</button>
+          <button id="ausente" type="button" class="botao-linha" hidden>Ausente: sortear de novo</button>
         </div>
       </div>
     </div>
@@ -118,12 +125,12 @@
     <div class="resultados-topo">
       <p id="resultados-resumo" class="resultados-resumo"></p>
       <div class="resultados-acoes">
-        <button id="baixar" type="button" class="botao-claro">Baixar planilha</button>
+        <button id="baixar" type="button" class="botao-claro">Extrair ganhadores</button>
         <button id="imprimir" type="button" class="botao-claro">Imprimir</button>
       </div>
     </div>
     <div id="filtros" class="filtros" role="group" aria-label="Filtrar por hotel"></div>
-    <label class="campo-marcar marcar-desfeitos"><input id="mostrar-desfeitos" type="checkbox"><span>Mostrar também os desfeitos e resetados</span></label>
+    <label class="campo-marcar marcar-desfeitos"><input id="mostrar-desfeitos" type="checkbox"><span>Mostrar também os ausentes, desfeitos e resetados</span></label>
     <div class="tabela-rolagem">
       <table class="tabela">
         <thead><tr><th scope="col">Hotel</th><th scope="col">Sorteado</th><th scope="col">Rodada</th><th scope="col">Data e hora</th><th scope="col">Situação</th></tr></thead>
@@ -133,7 +140,7 @@
     <p id="resultados-vazio" class="vazio" hidden>Nenhum quarto sorteado ainda.</p>
     <section class="zona-reset" aria-labelledby="reset-titulo">
       <h2 id="reset-titulo">Resetar o sorteio</h2>
-      <p>Anula todos os sorteios (hotéis e rodada bônus) e libera todas as roletas para girar de novo. O histórico fica guardado. Para resetar só um hotel, use o botão na roleta dele.</p>
+      <p>Anula todos os sorteios (hotéis e rodada bônus), devolve os ausentes ao sorteio e libera todas as roletas para girar de novo. O histórico fica guardado. Para resetar só um hotel, use o botão na roleta dele.</p>
       <button id="resetar-tudo" type="button" class="botao-escuro">Resetar todo o sorteio</button>
     </section>
   </main>
@@ -198,10 +205,10 @@
   <form method="dialog">
     <h2 id="dialogo-titulo"></h2>
     <p id="dialogo-texto"></p>
-    <label id="dialogo-rotulo" class="dialogo-rotulo" hidden><span id="dialogo-campo-texto"></span><input id="dialogo-campo" autocomplete="off" maxlength="120"></label>
+    <label id="dialogo-rotulo" class="dialogo-rotulo" hidden><span id="dialogo-campo-texto"></span><input id="dialogo-campo" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" maxlength="120"></label>
     <div class="dialogo-acoes">
       <button value="ok" id="dialogo-ok" class="botao-nobre">Confirmar</button>
-      <button value="cancelar" class="botao-linha" formnovalidate>Cancelar</button>
+      <button value="cancelar" id="dialogo-cancelar" class="botao-linha" formnovalidate>Cancelar</button>
     </div>
   </form>
 </dialog>

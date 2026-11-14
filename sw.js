@@ -2,10 +2,10 @@
 // Receita medida (memória pwa-service-worker-versao-nova-na-hora): rede primeiro, sem passar pelo cache
 // do navegador (fetch(req.url, {cache: 'no-cache', redirect})), prazo de 3 s lendo a resposta inteira;
 // vencido o prazo ou sem rede, entrega a cópia guardada e a rede atualiza a cópia por trás.
-const VERSAO = 'cpgd29-v3';
+const VERSAO = 'cpgd29-v4';
 const CORE = [
   './', 'index.html', 'css/estilo.css',
-  'js/app.js', 'js/dados.js', 'js/nucleo.js', 'js/roleta.js', 'js/musica.js', 'audio/suspense.mp3',
+  'js/app.js', 'js/dados.js', 'js/nucleo.js', 'js/roleta.js', 'js/musica.js', 'audio/suspense.mp3', 'audio/rufo.wav', 'audio/prato.wav',
   'img/fundo-campo.jpg', 'img/fundo-capa.jpg', 'img/logo-nome.png', 'img/logo-casal.png',
   'img/icone-64.png', 'img/icone-180.png',
   'img/hoteis/hotel-monte-real.jpg', 'img/hoteis/hotel-panorama.jpg', 'img/hoteis/hotel-gloria.jpg',
@@ -25,7 +25,8 @@ self.addEventListener('install', (e) => {
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
-      .then((ks) => Promise.all(ks.filter((k) => k !== VERSAO).map((k) => caches.delete(k))))
+      // só as cópias antigas do próprio sorteio: os outros sites da conta dividem o mesmo endereço
+      .then((ks) => Promise.all(ks.filter((k) => k.startsWith('cpgd29-') && k !== VERSAO).map((k) => caches.delete(k))))
       .then(() => self.clients.claim()),
   );
 });

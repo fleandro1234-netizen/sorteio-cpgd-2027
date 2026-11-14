@@ -37,6 +37,33 @@ export class ErroServidor extends Error {
   constructor(status, texto) { super(`O banco respondeu ${status}.`); this.name = 'ErroServidor'; this.status = status; this.texto = texto; }
 }
 
+// ------------------------------------------------------------------ ausente
+// Pedido de 14/11 à noite: "se o numero escolhido não estiver no salão, precisamos de um botão de
+// ausente, e tirarmos o numero da lista de sorteio, e na sequencia realizar um novo sorteio".
+// O sorteio é anulado com o motivo 'ausente' e o quarto sai de todas as roletas (a do hotel e a
+// bônus). O reset daquela roleta, ou o geral, devolve o quarto: o motivo vira 'ausente_resetado'.
+export const AUSENTE = 'ausente';
+export const AUSENTE_RESETADO = 'ausente_resetado';
+export const ehAusente = (s) => !!s.anulado_em && s.motivo_anulacao === AUSENTE;
+
+// a roleta de um sorteio: a do hotel (rodada nula) ou a rodada bônus
+export function daRoleta(s, hotelId, bonus) {
+  return bonus ? s.rodada === 'bonus' : (s.rodada !== 'bonus' && s.hotel_id === hotelId);
+}
+
+// quartos que não podem sair num giro: os que têm sorteio válido e os ausentes
+export function quartosFora(e) {
+  return new Set(e.sorteios.filter((s) => !s.anulado_em || ehAusente(s)).map((s) => s.quarto_id));
+}
+
+function liberarNa(sorteios, hotelId, bonus) {
+  const mudados = [];
+  for (const s of sorteios) {
+    if (ehAusente(s) && daRoleta(s, hotelId, bonus)) { s.motivo_anulacao = AUSENTE_RESETADO; mudados.push(s); }
+  }
+  return mudados;
+}
+
 // ------------------------------------------------------------------ estado derivado
 export function estadoVisivel(base, fila) {
   const e = copia(base ?? vazio());
@@ -53,6 +80,8 @@ export function estadoVisivel(base, fila) {
     } else if (op.op === 'casal') {
       const s = e.sorteios.find((x) => x.cliente_id === op.cliente_id);
       if (s) { s.casal = op.casal || null; s.pendente = true; }
+    } else if (op.op === 'liberar') {
+      for (const s of liberarNa(e.sorteios, op.hotel_id, op.bonus)) s.pendente = true;
     }
   }
   return e;
@@ -65,8 +94,8 @@ export function quartosDoHotel(e, hotelId) {
 }
 
 export function livresDoHotel(e, hotelId) {
-  const ocupados = new Set(e.sorteios.filter((s) => !s.anulado_em).map((s) => s.quarto_id));
-  return quartosDoHotel(e, hotelId).filter((q) => !ocupados.has(q.id));
+  const fora = quartosFora(e);
+  return quartosDoHotel(e, hotelId).filter((q) => !fora.has(q.id));
 }
 
 export function sorteiosDoHotel(e, hotelId, { incluirAnulados = false } = {}) {
@@ -183,6 +212,7 @@ export class FonteRemota {
   }
 
   async _enviarAgora() {
+    let reler = false;
     while (this.fila.length) {
       const op = this.fila[0];
       let r;
@@ -193,6 +223,8 @@ export class FonteRemota {
           r = await this._rpc('registrar_sorteio', corpo);
         } else if (op.op === 'anular') {
           r = await this._rpc('anular_sorteio', { p_cliente_id: op.cliente_id, p_motivo: op.motivo });
+        } else if (op.op === 'liberar') {
+          r = await this._rpc('liberar_ausentes', { p_hotel_id: op.hotel_id, p_bonus: op.bonus });
         } else {
           r = await this._rpc('atualizar_casal', { p_cliente_id: op.cliente_id, p_casal: op.casal || null });
         }
@@ -210,10 +242,16 @@ export class FonteRemota {
         try { this.aoConflito?.({ numero: op.numero, hotel_id: op.hotel_id, cliente_id: op.cliente_id, motivo: r.motivo, existente: r.sorteio || null }); } catch { /* idem */ }
       } else if (r && r.sorteio) {
         this._mesclar(r.sorteio);
+      } else if (r && Array.isArray(r.sorteios)) {
+        for (const x of r.sorteios) this._mesclar(x);
       }
+      // Resposta perdida numa tentativa anterior: o banco já tinha anulado (nao_encontrado) ou devolvido
+      // os ausentes (lista vazia). Relê o banco para a tela não voltar atrás.
+      if ((op.op === 'anular' && r && r.ok === false) || (op.op === 'liberar' && !(r?.sorteios?.length))) reler = true;
       this._salvar();
       this._avisar();
     }
+    if (reler) { try { await this.carregar(); } catch { /* a leitura de 20 s acerta depois */ } }
     return { situacao: 'em_dia' };
   }
 
@@ -241,6 +279,17 @@ export class FonteRemota {
     return { envio: this._situacaoDe(clienteId, out) };
   }
 
+  // reset de uma roleta: devolve os ausentes dela (vai pela fila, funciona sem internet)
+  async liberarAusentes(hotelId, bonus = false) {
+    // um pedido que o banco recusaria ficaria preso na fila e travaria os envios seguintes
+    if (!bonus && !Number.isInteger(hotelId)) return { envio: 'ignorado' };
+    this.fila.push({ op: 'liberar', hotel_id: bonus ? null : hotelId, bonus: !!bonus, quando: agoraIso() });
+    this._salvar();
+    this._avisar();
+    const out = await this.enviarFila();
+    return { envio: out.situacao === 'em_dia' ? 'gravado' : (out.situacao === 'codigo_invalido' ? 'codigo_invalido' : 'pendente') };
+  }
+
   async atualizarCasal(clienteId, casal) {
     this.fila.push({ op: 'casal', cliente_id: clienteId, casal: String(casal || '').trim() });
     this._salvar();
@@ -256,10 +305,20 @@ export class FonteRemota {
     }
   }
 
+  // O banco confirmou: a tela já mostra o reset (e uma leitura antiga não traz os ganhadores de
+  // volta). Se a releitura falhar, o reset continua valendo; a leitura de 20 s acerta o resto.
   async resetar(hotelId = null) {
     await this._exigirFilaVazia();
     const r = await this._rpc('resetar_sorteio', { p_hotel_id: hotelId });
-    await this.carregar();
+    const quando = agoraIso();
+    for (const s of this.base.sorteios) {
+      if (hotelId != null && s.hotel_id !== hotelId) continue;
+      if (!s.anulado_em) this._mesclar({ ...s, anulado_em: quando, motivo_anulacao: 'reset' });
+      else if (s.motivo_anulacao === AUSENTE) this._mesclar({ ...s, motivo_anulacao: AUSENTE_RESETADO });
+    }
+    this._salvar();
+    this._avisar();
+    try { await this.carregar(); } catch { /* o reset já valeu no banco */ }
     return r;
   }
 
@@ -305,7 +364,7 @@ export class FonteDemo {
   async registrar({ hotel_id, quarto_id, numero, casal, rodada = null, cliente_id = novoId() }) {
     const s = { id: ++this._seq, cliente_id, hotel_id, quarto_id, numero, casal: String(casal || '').trim() || null, rodada,
       sorteado_em: agoraIso(), anulado_em: null, motivo_anulacao: null };
-    if (this.base.sorteios.some((x) => x.quarto_id === quarto_id && !x.anulado_em)) return { sorteio: s, envio: 'conflito' };
+    if (quartosFora(this.base).has(quarto_id)) return { sorteio: s, envio: 'conflito' };
     this.base.sorteios.push(s);
     this._avisar();
     return { sorteio: copia(s), envio: 'demonstracao' };
@@ -325,13 +384,23 @@ export class FonteDemo {
     return { envio: 'demonstracao' };
   }
 
+  async liberarAusentes(hotelId, bonus = false) {
+    const n = liberarNa(this.base.sorteios, bonus ? null : hotelId, bonus).length;
+    this._avisar();
+    return { envio: 'demonstracao', liberados: n };
+  }
+
   async resetar(hotelId = null) {
     let n = 0;
+    let a = 0;
+    const quando = agoraIso();
     for (const s of this.base.sorteios) {
-      if (!s.anulado_em && (hotelId == null || s.hotel_id === hotelId)) { s.anulado_em = agoraIso(); s.motivo_anulacao = 'reset'; n++; }
+      if (hotelId != null && s.hotel_id !== hotelId) continue;
+      if (!s.anulado_em) { s.anulado_em = quando; s.motivo_anulacao = 'reset'; n++; }
+      else if (s.motivo_anulacao === AUSENTE) { s.motivo_anulacao = AUSENTE_RESETADO; a++; }
     }
     this._avisar();
-    return { ok: true, anulados: n };
+    return { ok: true, anulados: n, ausentes_liberados: a };
   }
 
   async salvarHotel({ id = null, nome, prefixo = 'HOTEL', foto = null, ordem = 0 }) {
