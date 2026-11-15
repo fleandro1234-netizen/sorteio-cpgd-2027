@@ -298,8 +298,8 @@ body.modo-demo .faixa-demo {
   vertical-align: 1px;
 }
 
-/* rodada bônus: cartão marinho com o símbolo do casal */
-.cartao-bonus {
+/* rodada bônus e hospedagem em outra data: cartão marinho com o símbolo do casal */
+.cartao-bonus, .cartao-outra {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -313,9 +313,10 @@ body.modo-demo .faixa-demo {
   text-decoration: none;
   min-height: 100%;
 }
-.cartao-bonus:hover, .cartao-bonus:focus-visible { outline: 3px solid var(--ouro); outline-offset: 3px; }
+.cartao-bonus:hover, .cartao-bonus:focus-visible,
+.cartao-outra:hover, .cartao-outra:focus-visible { outline: 3px solid var(--ouro); outline-offset: 3px; }
 .bonus-simbolo { width: 68px; height: auto; margin-bottom: 4px; }
-.bonus-titulo { font: 700 clamp(24px, 2vw, 32px)/1.1 var(--serif); color: var(--ouro-claro); }
+.bonus-titulo { font: 700 clamp(24px, 2vw, 32px)/1.1 var(--serif); color: var(--ouro-claro); text-wrap: balance; }
 .bonus-texto { font: 400 clamp(19px, 1.5vw, 24px)/1.2 var(--script); color: var(--champanhe); }
 .bonus-conta {
   margin-top: 6px;
@@ -441,6 +442,7 @@ body.modo-demo .faixa-demo {
   font: 700 clamp(38px, min(7vh, 4.4vw), 92px)/1.05 var(--serif);
   padding: 0 0.05em 0.08em;
   overflow-wrap: anywhere;
+  text-wrap: balance; /* "Hospedagem em outra data" quebra em duas linhas parecidas, sem palavra sozinha */
 }
 .painel-frase { margin: 0; font: 400 clamp(28px, 4.2vh, 50px)/1 var(--script); color: var(--champanhe); }
 .bloco-pronto { display: flex; flex-direction: column; align-items: center; width: min(100%, 540px); }

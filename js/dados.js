@@ -40,15 +40,28 @@ export class ErroServidor extends Error {
 // ------------------------------------------------------------------ ausente
 // Pedido de 14/11 à noite: "se o numero escolhido não estiver no salão, precisamos de um botão de
 // ausente, e tirarmos o numero da lista de sorteio, e na sequencia realizar um novo sorteio".
-// O sorteio é anulado com o motivo 'ausente' e o quarto sai de todas as roletas (a do hotel e a
-// bônus). O reset daquela roleta, ou o geral, devolve o quarto: o motivo vira 'ausente_resetado'.
+// O sorteio é anulado com o motivo 'ausente' e o quarto sai de todas as roletas (a do hotel, a
+// bônus e a da hospedagem em outra data). O reset daquela roleta, ou o geral, devolve o quarto: o
+// motivo vira 'ausente_resetado'.
 export const AUSENTE = 'ausente';
 export const AUSENTE_RESETADO = 'ausente_resetado';
 export const ehAusente = (s) => !!s.anulado_em && s.motivo_anulacao === AUSENTE;
 
-// a roleta de um sorteio: a do hotel (rodada nula) ou a rodada bônus
-export function daRoleta(s, hotelId, bonus) {
-  return bonus ? s.rodada === 'bonus' : (s.rodada !== 'bonus' && s.hotel_id === hotelId);
+// Rodadas com os quartos de todos os hotéis: a bônus (14/11) e a hospedagem em outra data (15/11:
+// "mais um sorteio para todos do hotel, mas em dias diferentes ao encontro").
+export const RODADAS_ESPECIAIS = ['bonus', 'outra_data'];
+
+// a rodada pedida: true (forma de 14/11) é a bônus; o nome de uma rodada especial é ela; o resto é
+// a roleta do hotel
+function qualRodada(rodada) {
+  if (rodada === true) return 'bonus';
+  return RODADAS_ESPECIAIS.includes(rodada) ? rodada : null;
+}
+
+// a roleta de um sorteio: a do hotel (rodada nula) ou uma das rodadas especiais
+export function daRoleta(s, hotelId, rodada) {
+  const r = qualRodada(rodada);
+  return r ? s.rodada === r : (!s.rodada && s.hotel_id === hotelId);
 }
 
 // quartos que não podem sair num giro: os que têm sorteio válido e os ausentes
@@ -56,10 +69,10 @@ export function quartosFora(e) {
   return new Set(e.sorteios.filter((s) => !s.anulado_em || ehAusente(s)).map((s) => s.quarto_id));
 }
 
-function liberarNa(sorteios, hotelId, bonus) {
+function liberarNa(sorteios, hotelId, rodada) {
   const mudados = [];
   for (const s of sorteios) {
-    if (ehAusente(s) && daRoleta(s, hotelId, bonus)) { s.motivo_anulacao = AUSENTE_RESETADO; mudados.push(s); }
+    if (ehAusente(s) && daRoleta(s, hotelId, rodada)) { s.motivo_anulacao = AUSENTE_RESETADO; mudados.push(s); }
   }
   return mudados;
 }
@@ -81,7 +94,8 @@ export function estadoVisivel(base, fila) {
       const s = e.sorteios.find((x) => x.cliente_id === op.cliente_id);
       if (s) { s.casal = op.casal || null; s.pendente = true; }
     } else if (op.op === 'liberar') {
-      for (const s of liberarNa(e.sorteios, op.hotel_id, op.bonus)) s.pendente = true;
+      // pedido guardado pela versão de 14/11 só tem bonus (true ou false)
+      for (const s of liberarNa(e.sorteios, op.hotel_id, op.rodada || op.bonus)) s.pendente = true;
     }
   }
   return e;
@@ -136,6 +150,7 @@ export class FonteRemota {
     this._seqMescla = 0;
     this._mesclados = [];
     this.armazenamentoOk = true;
+    this.rodadasEspeciais = RODADAS_ESPECIAIS; // a tela confere: um dados.js antigo não sabe da outra data
   }
 
   restaurar() {
@@ -224,7 +239,9 @@ export class FonteRemota {
         } else if (op.op === 'anular') {
           r = await this._rpc('anular_sorteio', { p_cliente_id: op.cliente_id, p_motivo: op.motivo });
         } else if (op.op === 'liberar') {
-          r = await this._rpc('liberar_ausentes', { p_hotel_id: op.hotel_id, p_bonus: op.bonus });
+          const corpo = { p_hotel_id: op.hotel_id, p_bonus: !!op.bonus };
+          if (op.rodada && op.rodada !== 'bonus') corpo.p_rodada = op.rodada; // só a rodada nova manda p_rodada
+          r = await this._rpc('liberar_ausentes', corpo);
         } else {
           r = await this._rpc('atualizar_casal', { p_cliente_id: op.cliente_id, p_casal: op.casal || null });
         }
@@ -279,11 +296,13 @@ export class FonteRemota {
     return { envio: this._situacaoDe(clienteId, out) };
   }
 
-  // reset de uma roleta: devolve os ausentes dela (vai pela fila, funciona sem internet)
-  async liberarAusentes(hotelId, bonus = false) {
+  // reset de uma roleta: devolve os ausentes dela (vai pela fila, funciona sem internet).
+  // rodada: false para a roleta do hotel, 'bonus' (ou true) e 'outra_data' para as rodadas especiais.
+  async liberarAusentes(hotelId, rodada = false) {
+    const r = qualRodada(rodada);
     // um pedido que o banco recusaria ficaria preso na fila e travaria os envios seguintes
-    if (!bonus && !Number.isInteger(hotelId)) return { envio: 'ignorado' };
-    this.fila.push({ op: 'liberar', hotel_id: bonus ? null : hotelId, bonus: !!bonus, quando: agoraIso() });
+    if (!r && !Number.isInteger(hotelId)) return { envio: 'ignorado' };
+    this.fila.push({ op: 'liberar', hotel_id: r ? null : hotelId, bonus: r === 'bonus', rodada: r, quando: agoraIso() });
     this._salvar();
     this._avisar();
     const out = await this.enviarFila();
@@ -352,6 +371,7 @@ export class FonteDemo {
     this.aoConflito = null;
     this.aoMudar = null;
     this._seq = 100000;
+    this.rodadasEspeciais = RODADAS_ESPECIAIS;
   }
 
   restaurar() { return this.estado(); }
@@ -384,8 +404,9 @@ export class FonteDemo {
     return { envio: 'demonstracao' };
   }
 
-  async liberarAusentes(hotelId, bonus = false) {
-    const n = liberarNa(this.base.sorteios, bonus ? null : hotelId, bonus).length;
+  async liberarAusentes(hotelId, rodada = false) {
+    const r = qualRodada(rodada);
+    const n = liberarNa(this.base.sorteios, r ? null : hotelId, r).length;
     this._avisar();
     return { envio: 'demonstracao', liberados: n };
   }

@@ -2,7 +2,7 @@
 // Receita medida (memória pwa-service-worker-versao-nova-na-hora): rede primeiro, sem passar pelo cache
 // do navegador (fetch(req.url, {cache: 'no-cache', redirect})), prazo de 3 s lendo a resposta inteira;
 // vencido o prazo ou sem rede, entrega a cópia guardada e a rede atualiza a cópia por trás.
-const VERSAO = 'cpgd29-v4';
+const VERSAO = 'cpgd29-v5';
 const CORE = [
   './', 'index.html', 'css/estilo.css',
   'js/app.js', 'js/dados.js', 'js/nucleo.js', 'js/roleta.js', 'js/musica.js', 'audio/suspense.mp3', 'audio/rufo.wav', 'audio/prato.wav',
